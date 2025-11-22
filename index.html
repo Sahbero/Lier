@@ -5,17 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gizemli Bağ - Ruh Eşi Algoritması</title>
     
-    <!-- Tasarım Kütüphanesi -->
+    <!-- Stil Kütüphanesi -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- React Kütüphaneleri -->
+    <!-- React (Oyun Motoru) -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     
-    <!-- JSX Derleyicisi -->
+    <!-- Babel (Kod Derleyici) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- FIREBASE (Compat Sürümü - En Kararlı Sürüm) -->
+    <!-- FIREBASE (Global Compat Sürümü - Siyah Ekran Çözümü) -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -23,13 +23,7 @@
     <style>
         @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
         .animate-fade-in { animation: fade-in 0.5s ease-out; }
-        
-        @keyframes bounce-in { 
-            0% { transform: scale(0.3); opacity: 0; } 
-            50% { transform: scale(1.05); opacity: 1; } 
-            70% { transform: scale(0.9); } 
-            100% { transform: scale(1); opacity: 1; } 
-        }
+        @keyframes bounce-in { 0% { transform: scale(0.3); opacity: 0; } 50% { transform: scale(1.05); opacity: 1; } 70% { transform: scale(0.9); } 100% { transform: scale(1); opacity: 1; } }
         .animate-bounce-in { animation: bounce-in 0.6s cubic-bezier(0.215, 0.610, 0.355, 1.000); }
         
         .scrollbar-thin::-webkit-scrollbar { width: 6px; }
@@ -40,6 +34,10 @@
         .circle-bg { fill: none; stroke: #374151; stroke-width: 3.8; }
         .circle { fill: none; stroke-width: 2.8; stroke-linecap: round; animation: progress 1s ease-out forwards; }
         @keyframes progress { 0% { stroke-dasharray: 0 100; } }
+        
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #db2777; cursor: pointer; margin-top: -6px; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #4b5563; border-radius: 2px; }
     </style>
 </head>
 <body class="bg-[#09090b] text-white font-sans selection:bg-pink-500 selection:text-white overflow-x-hidden">
@@ -60,100 +58,63 @@
             measurementId: "G-FLFVH8Z4R9"
         };
 
-        // Firebase Başlatma
+        // Global Firebase Başlatma (Siyah Ekranı Önleyen Yöntem)
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
         const auth = firebase.auth();
         const db = firebase.firestore();
         
-        const APP_ID = "mystery-connection-v13"; // Temiz başlangıç
+        const APP_ID = "mystery-connection-final"; // Temiz veritabanı için yeni ID
 
         // ==================================================================
         // 🎵 MÜZİK DOSYASI 🎵
         // ==================================================================
         const BACKGROUND_MUSIC_URL = "Inner Stillness.mp3"; 
-        
-        // Global Audio Nesnesi
-        const bgAudio = new Audio(BACKGROUND_MUSIC_URL);
-        bgAudio.loop = true;
         // ==================================================================
 
 
-        // --- SVG İKON VERİLERİ (GARANTİ GÖRÜNÜM) ---
-        const ICONS_DATA = {
+        // --- GARANTİ SVG İKONLAR ---
+        const ICONS = {
             'mail': <g><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></g>,
             'settings': <g><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></g>,
-            'edit-3': <g><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></g>,
-            'log-out': <g><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></g>,
+            'edit': <g><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></g>,
+            'logout': <g><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></g>,
+            'trash': <g><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></g>,
             'user': <g><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></g>,
             'lock': <g><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>,
-            'message-circle': <g><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></g>,
+            'message': <g><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></g>,
             'send': <g><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></g>,
             'check': <g><polyline points="20 6 9 17 4 12"/></g>,
             'trophy': <g><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17"/><path d="M14 14.66V17"/><path d="M18 22l-.5-10"/><path d="M6 22l.5-10"/><path d="M9 22a2 2 0 0 1-2-2 4 4 0 0 1 4-4h2a4 4 0 0 1 4 4 2 2 0 0 1-2 2"/></g>,
-            'check-circle': <g><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></g>,
             'arrow-left': <g><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></g>,
-            'trash-2': <g><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></g>,
-            'user-check': <g><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></g>,
             'music': <g><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></g>,
             'x': <g><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></g>,
             'zap': <g><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></g>,
             'heart': <g><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></g>,
             'ghost': <g><path d="M9 22l1.5-1.5L12 22l1.5-1.5L15 22l1.5-1.5L18 22V7a6 6 0 0 0-6-6 6 6 0 0 0-6 6v15z"/></g>,
-            'frown': <g><circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></g>,
-            'smile': <g><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></g>,
-            'star': <g><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></g>,
-            'film': <g><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></g>,
-            'book': <g><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></g>,
-            'coffee': <g><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></g>,
-            'sparkles': <g><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M9 17v4"/><path d="M3 5h4"/></g>,
-            'alert-circle': <g><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></g>,
-            'chevron-right': <g><polyline points="9 18 15 12 9 6"/></g>,
-            'pen-tool': <g><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></g>
+            'play': <polygon points="5 3 19 12 5 21 5 3"></polygon>,
+            'pause': <g><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></g>
         };
 
-        const Icon = ({ name, size = 24, className = "" }) => {
-            return (
-                <svg 
-                    xmlns="http://www.w3.org/2000/svg" 
-                    width={size} 
-                    height={size} 
-                    viewBox="0 0 24 24" 
-                    fill="none" 
-                    stroke="currentColor" 
-                    strokeWidth="2" 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round" 
-                    className={className}
-                >
-                    {ICONS_DATA[name] || null}
-                </svg>
-            );
-        };
+        const Icon = ({ name, size = 24, className = "" }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+                {ICONS[name] || null}
+            </svg>
+        );
 
         // --- SABİTLER ---
         const GAME_STATES = { AUTH: 'AUTH', PROFILE: 'PROFILE', LOBBY: 'LOBBY', SEARCHING: 'SEARCHING', MATCH_FOUND: 'MATCH_FOUND', CHAT: 'CHAT', GUESS_LEVEL: 'GUESS_LEVEL', GUESS_CRITERIA: 'GUESS_CRITERIA', RESULT: 'RESULT', INBOX: 'INBOX' };
-        const MATCH_LEVELS = [
-            { id: 0, label: "Farklı Dünyalar", color: "text-gray-500", limit: 0 },
-            { id: 1, label: "Tesadüfi Benzerlik", color: "text-blue-400", limit: 1 },
-            { id: 2, label: "Ortak Frekans", color: "text-green-400", limit: 2 },
-            { id: 3, label: "Güçlü Bağ", color: "text-purple-400", limit: 3 },
-            { id: 4, label: "Ruh Eşi", color: "text-pink-500", limit: 99 }
-        ];
+        const MATCH_LEVELS = [{id:0,label:"Farklı Dünyalar",color:"text-gray-500",limit:0},{id:1,label:"Tesadüfi Benzerlik",color:"text-blue-400",limit:1},{id:2,label:"Ortak Frekans",color:"text-green-400",limit:2},{id:3,label:"Güçlü Bağ",color:"text-purple-400",limit:3},{id:4,label:"Ruh Eşi",color:"text-pink-500",limit:99}];
         const QUESTIONS = [
-            { id: 'color', label: 'En sevdiğin renk?', iconName: 'zap', options: ['Mavi', 'Kırmızı', 'Siyah', 'Yeşil', 'Sarı', 'Mor', 'Turuncu', 'Beyaz'] },
-            { id: 'food', label: 'En sevdiğin yemek?', iconName: 'heart', options: ['Pizza', 'Burger', 'Sushi', 'Kebap', 'Makarna', 'Salata', 'Tatlı', 'Mantı'] },
-            { id: 'toy', label: 'Çocukken en sevdiğin oyuncak?', iconName: 'ghost', options: ['Lego', 'Barbie', 'Araba', 'Peluş', 'Action Man', 'Top', 'Gameboy', 'Puzzle'] },
-            { id: 'music', label: 'Müzik türün?', iconName: 'music', options: ['Pop', 'Rock', 'Rap', 'Klasik', 'Jazz', 'Elektronik', 'Indie', 'Metal'] },
-            { id: 'person', label: 'Değerli insan tipi?', iconName: 'user', options: ['Aile', 'Dost', 'Sevgili', 'Kendim', 'Mentor', 'Evcil Hayvan'] },
-            { id: 'fear', label: 'En büyük korkun?', iconName: 'frown', options: ['Yalnızlık', 'Yükseklik', 'Böcek', 'Başarısızlık', 'Karanlık', 'Ölüm', 'Palyaço'] },
-            { id: 'excitement', label: 'Seni ne heyecanlandırır?', iconName: 'smile', options: ['Seyahat', 'Para', 'Aşk', 'Yemek', 'Adrenalin', 'Öğrenmek'] },
-            { id: 'talent', label: 'İstediğin yetenek?', iconName: 'star', options: ['Uçmak', 'Görünmezlik', 'Zihin Okuma', 'Zamanı Durdurma', 'Işınlanma'] },
-            { id: 'film', label: 'En sevdiğin film türü?', iconName: 'film', options: ['Bilim Kurgu', 'Romantik', 'Korku', 'Komedi', 'Aksiyon', 'Belgesel', 'Animasyon'] },
-            { id: 'book', label: 'En sevdiğin kitap türü?', iconName: 'book', options: ['Roman', 'Kişisel Gelişim', 'Tarih', 'Fantastik', 'Polisiye', 'Şiir'] },
-            { id: 'item', label: 'Vazgeçilmez eşyan?', iconName: 'coffee', options: ['Telefon', 'Kulaklık', 'Bilgisayar', 'Saat', 'Gözlük', 'Defter'] },
-            { id: 'trait', label: 'En sevdiğin özelliğin?', iconName: 'sparkles', options: ['Zeka', 'Mizah', 'Sabır', 'Cesaret', 'Dürüstlük', 'Sadakat'] }
+            { id: 'color', label: 'Renk', iconName: 'zap', options: ['Mavi','Kırmızı','Siyah','Yeşil','Sarı','Mor','Turuncu','Beyaz'] },
+            { id: 'food', label: 'Yemek', iconName: 'heart', options: ['Pizza','Burger','Sushi','Kebap','Makarna','Salata','Tatlı','Mantı'] },
+            { id: 'toy', label: 'Oyuncak', iconName: 'ghost', options: ['Lego','Bebek','Araba','Peluş','Action Man','Top','Gameboy','Puzzle'] },
+            { id: 'music', label: 'Müzik', iconName: 'music', options: ['Pop','Rock','Rap','Klasik','Jazz','Elektronik','Indie','Metal'] },
+            { id: 'person', label: 'İnsan', iconName: 'user', options: ['Aile','Dost','Sevgili','Kendim','Mentor','Evcil Hayvan'] },
+            { id: 'fear', label: 'Korku', iconName: 'ghost', options: ['Yalnızlık','Yükseklik','Böcek','Başarısızlık','Karanlık','Ölüm','Palyaço'] },
+            { id: 'excitement', label: 'Heyecan', iconName: 'zap', options: ['Seyahat','Para','Aşk','Yemek','Adrenalin','Öğrenmek'] },
+            { id: 'talent', label: 'Yetenek', iconName: 'star', options: ['Uçmak','Görünmezlik','Zihin Okuma','Zamanı Durdurma','Işınlanma'] }
         ];
 
         function MysteryConnectionGame() {
@@ -170,6 +131,7 @@
             const [showSettings, setShowSettings] = useState(false);
             const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
             const [volume, setVolume] = useState(0.5);
+            const [isPlaying, setIsPlaying] = useState(false); // Müzik durumunu takip et
             const [gameId, setGameId] = useState(null);
             const [currentTurn, setCurrentTurn] = useState(null);
             const [onlineCount, setOnlineCount] = useState(0);
@@ -183,17 +145,47 @@
             const [inboxGames, setInboxGames] = useState([]);
             const [isUnlimitedChat, setIsUnlimitedChat] = useState(false);
             const chatEndRef = useRef(null);
+            const audioRef = useRef(null);
 
-            // --- MÜZİK YÖNETİMİ ---
+            // --- MÜZİK SİSTEMİ (DÜZELTİLDİ) ---
             useEffect(() => {
-                bgAudio.volume = volume;
-                const playAudio = () => { if (bgAudio.paused) bgAudio.play().catch(() => {}); };
-                document.addEventListener('click', playAudio, { once: true });
-                return () => document.removeEventListener('click', playAudio);
+                audioRef.current = new Audio(BACKGROUND_MUSIC_URL);
+                audioRef.current.loop = true;
+                audioRef.current.volume = volume;
+                
+                // İlk tıklamada çalmayı dene
+                const tryPlay = () => {
+                    if(audioRef.current.paused) {
+                        audioRef.current.play().then(() => setIsPlaying(true)).catch(() => {});
+                    }
+                };
+                document.addEventListener('click', tryPlay, { once: true });
+                
+                return () => {
+                    document.removeEventListener('click', tryPlay);
+                    if(audioRef.current) {
+                        audioRef.current.pause();
+                        audioRef.current = null;
+                    }
+                };
             }, []);
-            useEffect(() => { bgAudio.volume = volume; }, [volume]);
 
-            // --- AUTH & DATA ---
+            // Ses seviyesi değiştiğinde
+            useEffect(() => {
+                if(audioRef.current) audioRef.current.volume = volume;
+            }, [volume]);
+
+            const toggleMusic = () => {
+                if(!audioRef.current) return;
+                if(isPlaying) {
+                    audioRef.current.pause();
+                    setIsPlaying(false);
+                } else {
+                    audioRef.current.play().then(() => setIsPlaying(true)).catch(e => console.log("Play failed", e));
+                }
+            };
+
+            // --- AUTH ---
             useEffect(() => {
                 auth.onAuthStateChanged(async (u) => { 
                     if (u) {
@@ -208,9 +200,9 @@
             useEffect(() => {
                 if (!user) return;
                 const presenceRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('presence').doc(user.uid);
-                presenceRef.set({ lastSeen: firebase.firestore.FieldValue.serverTimestamp(), userId: user.uid }, { merge: true });
-                const interval = setInterval(() => presenceRef.set({ lastSeen: firebase.firestore.FieldValue.serverTimestamp(), userId: user.uid }, { merge: true }), 30000);
-                
+                const updatePresence = () => presenceRef.set({ lastSeen: firebase.firestore.FieldValue.serverTimestamp(), userId: user.uid }, { merge: true }).catch(()=>{});
+                updatePresence();
+                const interval = setInterval(updatePresence, 30000);
                 const unsub = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('presence').onSnapshot((snap) => {
                     const now = new Date();
                     setOnlineCount(snap.docs.filter(d => { const dt = d.data(); return dt.lastSeen && (now - dt.lastSeen.toDate()) < 120000; }).length);
@@ -262,10 +254,7 @@
                     await user.delete(); setGameState(GAME_STATES.AUTH); setShowSettings(false); setShowDeleteConfirm(false);
                 } catch (e) { setSystemMessage("Hesap silme hatası."); }
             };
-            const saveProfile = async () => { 
-                await db.collection('artifacts').doc(APP_ID).collection('users').doc(user.uid).collection('data').doc('profile').set(userProfile, { merge: true }); 
-                setGameState(GAME_STATES.LOBBY); setShowSettings(false); 
-            };
+            const saveProfile = async () => { await db.collection('artifacts').doc(APP_ID).collection('users').doc(user.uid).collection('data').doc('profile').set(userProfile, { merge: true }); setGameState(GAME_STATES.LOBBY); setShowSettings(false); };
             const isProfileComplete = userProfile.name && userProfile.age && QUESTIONS.every(q => userProfile[q.id] && userProfile[q.id].trim() !== "");
 
             const startMatchmaking = async () => {
@@ -379,10 +368,20 @@
                         <button onClick={() => setShowSettings(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><Icon name="x" /></button>
                         <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2"><Icon name="settings" className="text-pink-500"/> Ayarlar</h2>
                         <div className="space-y-4">
-                            <button onClick={() => { setShowSettings(false); setGameState(GAME_STATES.PROFILE); }} className="w-full flex items-center gap-3 bg-gray-700 hover:bg-gray-600 p-3 rounded-xl transition-colors text-left"><Icon name="edit-3" size={20} className="text-blue-400" /> Özelliklerimi Değiştir</button>
-                            <div className="bg-gray-700 p-3 rounded-xl"><div className="flex justify-between mb-2 text-sm text-gray-300"><span className="flex items-center gap-2"><Icon name="music" size={16}/> Müzik Sesi</span><span>{Math.round(volume * 100)}%</span></div><input type="range" min="0" max="1" step="0.1" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-pink-500" /></div>
-                            <button onClick={handleLogout} className="w-full flex items-center gap-3 bg-gray-700 hover:bg-gray-600 p-3 rounded-xl transition-colors text-left text-yellow-500"><Icon name="log-out" size={20} /> Çıkış Yap</button>
-                            <button onClick={() => setShowDeleteConfirm(true)} className="w-full flex items-center gap-3 bg-red-900/30 hover:bg-red-900/50 border border-red-900 p-3 rounded-xl transition-colors text-left text-red-400"><Icon name="trash-2" size={20} /> Hesabımı Sil</button>
+                            <button onClick={() => { setShowSettings(false); setGameState(GAME_STATES.PROFILE); }} className="w-full flex items-center gap-3 bg-gray-700 hover:bg-gray-600 p-3 rounded-xl transition-colors text-left"><Icon name="edit" size={20} className="text-blue-400" /> Özelliklerimi Değiştir</button>
+                            
+                            <div className="bg-gray-700 p-3 rounded-xl">
+                                <div className="flex justify-between mb-2 text-sm text-gray-300">
+                                    <span className="flex items-center gap-2"><Icon name="music" size={16}/> Müzik Sesi</span>
+                                    <button onClick={toggleMusic} className="text-pink-400 hover:text-pink-300">
+                                        {isPlaying ? <Icon name="pause" size={16}/> : <Icon name="play" size={16}/>}
+                                    </button>
+                                </div>
+                                <input type="range" min="0" max="1" step="0.1" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-pink-500" />
+                            </div>
+
+                            <button onClick={handleLogout} className="w-full flex items-center gap-3 bg-gray-700 hover:bg-gray-600 p-3 rounded-xl transition-colors text-left text-yellow-500"><Icon name="logout" size={20} /> Çıkış Yap</button>
+                            <button onClick={() => setShowDeleteConfirm(true)} className="w-full flex items-center gap-3 bg-red-900/30 hover:bg-red-900/50 border border-red-900 p-3 rounded-xl transition-colors text-left text-red-400"><Icon name="trash" size={20} /> Hesabımı Sil</button>
                         </div>
                     </div>
                     {showDeleteConfirm && (<div className="absolute inset-0 flex items-center justify-center bg-black/90 rounded-2xl"><div className="text-center p-6"><h3 className="text-red-500 font-bold text-lg mb-2">Emin misin?</h3><div className="flex gap-2 justify-center"><button onClick={() => setShowDeleteConfirm(false)} className="bg-gray-700 px-4 py-2 rounded-lg">İptal</button><button onClick={handleDeleteAccount} className="bg-red-600 px-4 py-2 rounded-lg text-white font-bold">Sil</button></div></div></div>)}
@@ -390,7 +389,7 @@
             );
 
             if (gameState === GAME_STATES.AUTH) return (
-                <div className="flex flex-col items-center justify-center h-[90vh] p-6 animate-fade-in" onClick={() => bgAudio.paused && bgAudio.play().catch(()=>{})}>
+                <div className="flex flex-col items-center justify-center h-[90vh] p-6 animate-fade-in">
                     <div className="w-full max-w-md bg-gray-800/90 p-8 rounded-2xl border border-gray-700 shadow-2xl">
                         <div className="text-center mb-8"><h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-600 mb-2">GİZEMLİ BAĞ</h1><p className="text-gray-400 text-sm">Kaderindeki kişiyi bulmaya hazır mısın?</p></div>
                         {systemMessage && <div className="bg-red-900/50 border border-red-500 text-red-200 text-sm p-3 rounded-lg mb-4 flex items-center gap-2"><Icon name="alert-circle" size={16} /> {systemMessage}</div>}
@@ -414,7 +413,7 @@
             );
 
             if (gameState === GAME_STATES.LOBBY) return (
-                <div className="flex flex-col items-center justify-center h-[80vh] animate-fade-in relative" onClick={() => bgAudio.paused && bgAudio.play().catch(()=>{})}>
+                <div className="flex flex-col items-center justify-center h-[80vh] animate-fade-in relative">
                     {showSettings && renderSettingsModal()}
                     <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center">
                         <button onClick={() => setGameState(GAME_STATES.INBOX)} className="relative bg-gray-800 p-3 rounded-full hover:bg-gray-700 border border-gray-600 flex items-center justify-center w-12 h-12"><Icon name="mail" size={24} className="text-white" />{inboxGames.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-xs w-5 h-5 flex items-center justify-center rounded-full">{inboxGames.length}</span>}</button>
