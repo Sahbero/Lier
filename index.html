@@ -63,7 +63,7 @@
             console.error("Firebase başlatma hatası:", e);
         }
         
-        const APP_ID = "mystery-connection-v6"; 
+        const APP_ID = "mystery-connection-v7"; // Puanlama değişikliği için versiyonu artırdık
 
         // --- IKON BİLEŞENİ ---
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -155,7 +155,6 @@
                 const unsubscribe = onAuthStateChanged(auth, async (u) => { 
                     if (u) {
                         setUser(u);
-                        // DÜZELTME: Kullanıcı profili artık 'users/{uid}/data/profile' altında aranıyor (Rule 1'e uygun)
                         const docRef = doc(db, 'artifacts', APP_ID, 'users', u.uid, 'data', 'profile');
                         const docSnap = await getDoc(docRef);
                         if (docSnap.exists()) {
@@ -175,7 +174,6 @@
             // 2. ONLINE PRESENCE
             useEffect(() => {
                 if (!user) return;
-                // Presence verisi public data altında olmalı
                 const presenceRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'presence', user.uid);
                 setDoc(presenceRef, { lastSeen: serverTimestamp(), userId: user.uid }, { merge: true }).catch(() => {});
                 
@@ -193,15 +191,17 @@
 
             useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-            // 3. INBOX LISTENER
+            // 3. INBOX LISTENER (PERSISTENCE FIX: Removed orderBy to avoid index errors)
             useEffect(() => {
                 if (!user || gameState === GAME_STATES.AUTH) return;
                 const gamesRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'games');
-                const q = query(gamesRef, orderBy('createdAt', 'desc')); 
+                // DÜZELTME: orderBy kaldırıldı, client-side sıralama yapılıyor (Mesajların kaybolmaması için)
+                const q = query(gamesRef); 
                 const unsubInbox = onSnapshot(q, (snapshot) => {
                     const myGames = snapshot.docs
                         .map(d => ({ id: d.id, ...d.data() }))
-                        .filter(g => (g.player1.userId === user.uid || g.player2.userId === user.uid) && g.status === 'shared');
+                        .filter(g => (g.player1.userId === user.uid || g.player2.userId === user.uid) && g.status === 'shared')
+                        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
                     setInboxGames(myGames);
                 });
                 return () => unsubInbox();
@@ -221,21 +221,17 @@
 
                 try {
                     if (authMode === 'REGISTER') {
-                        // DÜZELTME: Kullanıcı adı kontrolü artık 'public/data/usernames' altında (Rule 1'e uygun)
                         const usernameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'usernames', authCreds.username.toLowerCase());
                         const usernameSnap = await getDoc(usernameRef);
                         
                         if (usernameSnap.exists()) {
-                            throw new Error("Bu kullanıcı adı zaten alınmış.");
+                            throw new Error("USERNAME_TAKEN");
                         }
 
-                        // Kayıt
                         const userCredential = await createUserWithEmailAndPassword(auth, email, authCreds.password);
                         const uid = userCredential.user.uid;
 
-                        // DÜZELTME: Kullanıcı adı ve profil kayıt yolları güncellendi
                         await setDoc(usernameRef, { uid: uid });
-                        // Kullanıcı profili 'users/{uid}/data/profile' altına kaydediliyor
                         await setDoc(doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'profile'), {
                             username: authCreds.username,
                             name: authCreds.username, 
@@ -249,11 +245,11 @@
                     console.error("Auth error:", error);
                     let msg = "Bir hata oluştu. Lütfen tekrar deneyin.";
                     
-                    if (error.message.includes("taken")) msg = "Bu kullanıcı adı zaten alınmış.";
-                    else if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') msg = "Kullanıcı adı veya şifre hatalı.";
+                    // DÜZELTME: Kullanıcı adı hatası özelleştirildi
+                    if (error.message === "USERNAME_TAKEN") msg = "Bu kullanıcı adı alınmış, farklı bir tane deneyin.";
                     else if (error.code === 'auth/email-already-in-use') msg = "Bu kullanıcı adı kullanımda.";
-                    else if (error.code === 'auth/operation-not-allowed') msg = "Lütfen Firebase Konsolunda 'Email/Password' girişini etkinleştirin!"; // Hata mesajı eklendi
-                    else if (error.code === 'permission-denied') msg = "Erişim reddedildi. Firebase kurallarını kontrol edin.";
+                    else if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') msg = "Kullanıcı adı veya şifre hatalı.";
+                    else if (error.code === 'auth/operation-not-allowed') msg = "Lütfen Firebase Konsolunda 'Email/Password' girişini etkinleştirin!";
                     
                     setSystemMessage(msg);
                 } finally {
@@ -269,7 +265,6 @@
 
             const saveProfile = async () => {
                 if (!user) return;
-                // DÜZELTME: Profil kaydı yolu güncellendi
                 await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'data', 'profile'), userProfile, { merge: true });
                 setGameState(GAME_STATES.LOBBY);
             };
@@ -438,26 +433,53 @@
                 setGuesses(prev => ({ ...prev, [catId]: !prev[catId] }));
             };
 
+            // --- DÜZELTİLMİŞ PUANLAMA SİSTEMİ ---
             const finalizeScore = () => {
                 let finalScore = 0;
                 const correctLevel = guessedLevel.id === matchLevel.id;
+                
+                // 1. Seviye Puanı (40 Puan)
                 if (correctLevel) {
-                    finalScore += 50;
-                    if (matchLevel.id === 0) finalScore = 100; 
+                    finalScore += 40;
                 }
-                if (matchLevel.id !== 0) {
-                    let correctAttrs = 0;
-                    let wrongAttrs = 0;
+
+                // 2. Özellik Puanı (60 Puan üzerinden ağırlıklı)
+                const totalShared = sharedCategories.length;
+                
+                // EŞLEŞME VARSA (TotalShared > 0)
+                if (totalShared > 0) {
+                    let correctGuessesCount = 0;
+                    let wrongGuessesCount = 0;
+                    
                     Object.keys(guesses).forEach(key => {
                         if (guesses[key]) {
-                            if (sharedCategories.includes(key)) correctAttrs++;
-                            else wrongAttrs++;
+                            if (sharedCategories.includes(key)) correctGuessesCount++;
+                            else wrongGuessesCount++;
                         }
                     });
-                    finalScore += (correctAttrs * 10);
-                    finalScore -= (wrongAttrs * 5);
+
+                    // Her doğru tahminin değeri: 60 / Toplam Ortak Özellik
+                    const pointsPerCorrect = 60 / totalShared;
+                    const pointsPerWrong = pointsPerCorrect; // Yanlışlar da aynı oranda ceza yer
+
+                    finalScore += (correctGuessesCount * pointsPerCorrect);
+                    finalScore -= (wrongGuessesCount * pointsPerWrong);
+                } 
+                // EŞLEŞME YOKSA (TotalShared == 0, yani Farklı Dünyalar)
+                else {
+                    const selectedCount = Object.values(guesses).filter(Boolean).length;
+                    if (selectedCount === 0) {
+                        // Hiçbir şey seçmediyse (doğru hareket) full puan
+                        finalScore += 60; 
+                    } else {
+                        // Yanlış yere özellik seçtiyse puan yok
+                        finalScore += 0;
+                    }
                 }
-                if (finalScore < 0) finalScore = 0;
+
+                // Puanı 0-100 arasına sıkıştır ve tam sayı yap
+                finalScore = Math.max(0, Math.min(100, Math.round(finalScore)));
+                
                 setScore(finalScore);
                 setGameState(GAME_STATES.RESULT);
             };
@@ -474,7 +496,7 @@
                 setGameId(game.id);
                 setIsUnlimitedChat(true);
                 startGameListener(game.id);
-                setGameState(GAME_STATES.RESULT);
+                setGameState(GAME_STATES.RESULT); // Önce sonucu gösterir, oradan sohbete girilir
             };
 
             // --- RENDERLAR ---
@@ -620,6 +642,7 @@
                             {!isUnlimitedChat && (<div className="mb-2 text-center">{isMyTurn ? <span className="text-green-400 text-xs font-bold animate-pulse">● Sıra Sende!</span> : <span className="text-gray-500 text-xs font-bold">○ Karşı taraf yazıyor...</span>}</div>)}
                             <div className="flex gap-2 items-center">
                                 <input type="text" disabled={!isUnlimitedChat && !isMyTurn} value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Mesajını yaz..." className={`flex-1 bg-gray-900 border border-gray-700 rounded-full px-6 py-3 text-white outline-none ${!isUnlimitedChat && !isMyTurn && 'opacity-50'}`} />
+                                {/* DÜZELTME: Gönder butonu ikon olarak ayarlandı */}
                                 <button disabled={!isUnlimitedChat && !isMyTurn} onClick={sendMessage} className={`bg-blue-600 hover:bg-blue-700 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110 ${!isUnlimitedChat && !isMyTurn && 'opacity-50 cursor-not-allowed'}`}><Icon name="send" size={20} /></button>
                             </div>
                         </div>
