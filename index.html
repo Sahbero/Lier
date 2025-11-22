@@ -27,7 +27,7 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        // --- FIREBASE MODÜLLERİ ---
+        // --- FIREBASE MODÜLLERİ (CDN) ---
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
         import { 
@@ -35,22 +35,30 @@
             query, where, getDocs, deleteDoc, setDoc, serverTimestamp 
         } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-        // --- FIREBASE AYARLARI ---
-        // Lütfen aşağıdaki alanları kendi Firebase Console bilgilerinizle doldurun.
+        // ==================================================================
+        // SENİN FIREBASE BİLGİLERİN (lier-db123)
+        // ==================================================================
         const firebaseConfig = {
-            apiKey: "BURAYA_API_KEY_YAZ",
-            authDomain: "BURAYA_PROJECT_ID.firebaseapp.com",
-            projectId: "BURAYA_PROJECT_ID",
-            storageBucket: "BURAYA_PROJECT_ID.appspot.com",
-            messagingSenderId: "BURAYA_SENDER_ID",
-            appId: "BURAYA_APP_ID"
+            apiKey: "AIzaSyC67niOAv8lLVAlDDRVSCQFTdyJO2eMn94",
+            authDomain: "lier-db123.firebaseapp.com",
+            projectId: "lier-db123",
+            storageBucket: "lier-db123.firebasestorage.app",
+            messagingSenderId: "637814349438",
+            appId: "1:637814349438:web:c670c3e13dd5bd28a6422f",
+            measurementId: "G-FLFVH8Z4R9"
         };
+        // ==================================================================
 
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
+        // Firebase Başlatma
+        let app, auth, db;
+        try {
+            app = initializeApp(firebaseConfig);
+            auth = getAuth(app);
+            db = getFirestore(app);
+        } catch (e) {
+            console.error("Firebase başlatma hatası:", e);
+        }
         
-        // Sabit App ID (Veritabanı yolu için)
         const APP_ID = "mystery-connection-v2"; 
 
         // --- IKON BİLEŞENİ ---
@@ -68,7 +76,7 @@
             return <span ref={iconRef} data-name={name} className="inline-flex items-center justify-center"></span>;
         };
 
-        // --- SABİTLER ---
+        // --- OYUN VERİLERİ ---
         const GAME_STATES = {
             PROFILE: 'PROFILE',
             LOBBY: 'LOBBY',
@@ -107,6 +115,7 @@
             const { useState, useEffect, useRef } = React;
             
             const [user, setUser] = useState(null);
+            const [authError, setAuthError] = useState(null);
             const [gameState, setGameState] = useState(GAME_STATES.PROFILE);
             const [userProfile, setUserProfile] = useState({});
             const [opponentProfile, setOpponentProfile] = useState({});
@@ -121,65 +130,81 @@
             const [inputText, setInputText] = useState("");
             const [questionsLeft, setQuestionsLeft] = useState(3);
             const [systemMessage, setSystemMessage] = useState(null);
-            const [debugLog, setDebugLog] = useState(""); // Hata ayıklama için
             
             const [guessedLevel, setGuessedLevel] = useState(null);
             const [guesses, setGuesses] = useState({});
             const chatEndRef = useRef(null);
 
-            // Helper for logging
-            const log = (msg) => {
-                console.log(msg);
-                // setDebugLog(prev => prev + "\n" + msg); // Debug'ı ekranda görmek isterseniz bunu açın
-            };
-
-            // 1. AUTHENTICATION
+            // 1. AUTHENTICATION & CONFIG CHECK
             useEffect(() => {
-                log("Giriş yapılıyor...");
-                signInAnonymously(auth).catch(err => {
-                    log("Giriş hatası: " + err.message);
-                    setSystemMessage("Giriş yapılamadı. Lütfen sayfayı yenileyin.");
-                });
+                if (!auth) {
+                    setAuthError({ title: "Firebase Hatası", msg: "Firebase başlatılamadı. Config ayarlarını kontrol edin." });
+                    return;
+                }
+
+                const performLogin = () => {
+                    setAuthError(null);
+                    signInAnonymously(auth).catch(err => {
+                        console.error("Auth Error:", err);
+                        let errorMsg = "Bilinmeyen bir hata oluştu.";
+                        let errorTitle = "Giriş Yapılamadı";
+
+                        if (err.code === 'auth/operation-not-allowed') {
+                            errorTitle = "Anonim Giriş Kapalı";
+                            errorMsg = "Lütfen Firebase Konsol -> Authentication -> Sign-in method kısmından 'Anonymous' giriş seçeneğini etkinleştirin.";
+                        } else if (err.code === 'auth/invalid-api-key') {
+                            errorTitle = "Geçersiz API Key";
+                            errorMsg = "API Anahtarınız hatalı görünüyor. Lütfen config ayarlarını kontrol edin.";
+                        } else if (err.code === 'auth/network-request-failed') {
+                            errorTitle = "Bağlantı Hatası";
+                            errorMsg = "İnternet bağlantınızı kontrol edin.";
+                        } else if (err.code === 'auth/project-not-found') {
+                            errorTitle = "Proje Bulunamadı";
+                            errorMsg = "Project ID yanlış veya proje silinmiş.";
+                        }
+                        
+                        setAuthError({ title: errorTitle, msg: errorMsg });
+                    });
+                };
+
+                performLogin();
                 
                 const unsubscribe = onAuthStateChanged(auth, (u) => {
                     if (u) {
-                        log("Giriş başarılı: " + u.uid);
                         setUser(u);
+                        setAuthError(null);
+                    } else {
+                        setUser(null);
                     }
                 });
                 return () => unsubscribe();
             }, []);
 
-            // 2. ONLINE SAYISI VE PRESENCE
+            // 2. ONLINE SAYISI
             useEffect(() => {
                 if (!user) return;
 
-                // Kendini kaydet
-                const presenceRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'presence', user.uid);
                 const updatePresence = () => {
+                    const presenceRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'presence', user.uid);
                     setDoc(presenceRef, { 
                         lastSeen: serverTimestamp(),
                         userId: user.uid 
-                    }, { merge: true }).catch(e => log("Presence update err: " + e.message));
+                    }, { merge: true }).catch(e => console.log("Presence hatası (önemsiz):", e));
                 };
                 
                 updatePresence();
-                const interval = setInterval(updatePresence, 20000); // 20sn'de bir güncelle
+                const interval = setInterval(updatePresence, 20000);
 
-                // Online Sayısını Dinle (Basit Yöntem: Tüm listeyi çek ve filtrele)
-                // NOT: Karmaşık sorgu (orderBy) kullanmıyoruz, index hatasını önlemek için.
                 const presenceColl = collection(db, 'artifacts', APP_ID, 'public', 'data', 'presence');
                 const unsubPresence = onSnapshot(presenceColl, (snapshot) => {
                     const now = new Date();
                     const activeUsers = snapshot.docs.filter(doc => {
                         const data = doc.data();
-                        // lastSeen null olabilir (yazma anında), bu durumda aktif say
                         if (!data.lastSeen) return true; 
-                        // 2 dakikadan (120000ms) eskiyse sayma
                         return (now - data.lastSeen.toDate()) < 120000;
                     });
                     setOnlineCount(activeUsers.length);
-                }, (err) => log("Online count fetch err: " + err.message));
+                }, (err) => console.log("Online sayacı hatası:", err));
 
                 return () => {
                     clearInterval(interval);
@@ -187,150 +212,106 @@
                 };
             }, [user]);
 
-            // Scroll helper
             useEffect(() => {
                 chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
             }, [messages]);
 
-            // Profil işlemleri
             const handleInputChange = (id, value) => {
                 setUserProfile(prev => ({ ...prev, [id]: value }));
             };
             const isProfileComplete = QUESTIONS.every(q => userProfile[q.id] && userProfile[q.id].trim() !== "");
 
-            // 3. EŞLEŞTİRME MANTIĞI (CRITICAL FIX)
+            // 3. MATCHMAKING
             const startMatchmaking = async () => {
-                if (!user) return;
+                if (!user) {
+                    setSystemMessage("Oturum açılmamış. Lütfen sayfayı yenileyin.");
+                    return;
+                }
+                
                 setGameState(GAME_STATES.SEARCHING);
                 setSystemMessage(null);
-                log("Eşleşme aranıyor...");
 
                 const queueRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'matchmaking_queue');
                 const gamesRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'games');
 
                 try {
-                    // A. Kuyrukta bekleyen var mı? (Index hatası olmaması için getDocs kullanıyoruz)
                     const snapshot = await getDocs(queueRef);
-                    
-                    // Kendimiz hariç birini bul
                     const opponentDoc = snapshot.docs.find(doc => doc.data().userId !== user.uid);
 
                     if (opponentDoc) {
-                        // --- ROL: KATILIMCI (Guest) ---
-                        log("Rakip bulundu: " + opponentDoc.id + ". Bağlanılıyor...");
-                        
                         const opponentData = opponentDoc.data();
-
-                        // Yarış Durumu (Race Condition) Kontrolü
                         try {
-                            // Rakibi kuyruktan silmeye çalış. Eğer başkası sildiyse burası hata verir.
                             await deleteDoc(opponentDoc.ref);
-                            
-                            // Silme başarılıysa oyunu oluştur
                             const newGameRef = await addDoc(gamesRef, {
-                                player1: opponentData, // Kuyruktaki (Ev Sahibi)
-                                player2: { userId: user.uid, profile: userProfile }, // Ben (Misafir)
+                                player1: opponentData,
+                                player2: { userId: user.uid, profile: userProfile },
                                 status: 'active',
                                 createdAt: serverTimestamp(),
                                 messages: []
                             });
-
-                            log("Oyun oluşturuldu: " + newGameRef.id);
                             setGameId(newGameRef.id);
-                            // Direkt dinlemeye başla
                             startGameListener(newGameRef.id);
-
                         } catch (deleteError) {
-                            // Rakibi başkası kaptı, tekrar dene
-                            log("Rakip başkası tarafından alındı, tekrar aranıyor...");
-                            setTimeout(startMatchmaking, 500); // Yarım saniye bekle tekrar dene
+                            setTimeout(startMatchmaking, 500);
                         }
-
                     } else {
-                        // --- ROL: BEKLEYEN (Host) ---
-                        log("Kuyruk boş. Beklemeye geçiliyor...");
-                        
-                        // Önce eski kuyruk kayıtlarımı temizle (Temizlik)
                         const myOldEntries = snapshot.docs.filter(doc => doc.data().userId === user.uid);
                         myOldEntries.forEach(d => deleteDoc(d.ref));
 
-                        // Kuyruğa ekle
                         const myQueueRef = await addDoc(queueRef, {
                             userId: user.uid,
                             profile: userProfile,
                             createdAt: serverTimestamp()
                         });
 
-                        // Oyunun oluşturulmasını bekle
-                        // DÜZELTME: Karmaşık sorgu yerine tüm aktif oyunları dinleyip filtrele
-                        // Bu, kullanıcı sayısı azken en güvenli yöntemdir.
                         const unsubGameWait = onSnapshot(gamesRef, (gameSnap) => {
-                            // Player1'i ben olan ve durumu active olan oyun var mı?
                             const myGame = gameSnap.docs.find(d => {
                                 const data = d.data();
                                 return data.player1 && data.player1.userId === user.uid && data.status === 'active';
                             });
 
                             if (myGame) {
-                                log("Biri oyuna katıldı! ID: " + myGame.id);
-                                // Kuyruktan çık (Garanti olsun)
                                 deleteDoc(myQueueRef).catch(() => {}); 
-                                
                                 setGameId(myGame.id);
-                                unsubGameWait(); // Beklemeyi bırak
+                                unsubGameWait(); 
                                 startGameListener(myGame.id);
                             }
                         });
-
-                        // İptal durumu için ref'i saklayabiliriz ama basitlik için geçiyoruz.
                     }
-
                 } catch (error) {
-                    log("Matchmaking CRITICAL Error: " + error.message);
-                    setSystemMessage("Bağlantı hatası. Lütfen tekrar dene. (" + error.message + ")");
+                    setSystemMessage("Bağlantı hatası: " + error.message);
                     setGameState(GAME_STATES.LOBBY);
                 }
             };
 
-            // 4. OYUN DİNLEYİCİSİ
             const startGameListener = (id) => {
                 if (!user) return;
-                log("Oyun verileri dinleniyor...");
-                
                 const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', id);
                 
                 unsubscribeGameRef.current = onSnapshot(gameRef, (docSnap) => {
                     if (!docSnap.exists()) return;
                     const data = docSnap.data();
                     
-                    // Kim kimdir belirle
                     const isP1 = data.player1.userId === user.uid;
                     const myProf = isP1 ? data.player1.profile : data.player2.profile;
                     const oppProf = isP1 ? data.player2.profile : data.player1.profile;
                     
                     setOpponentProfile(oppProf);
-                    
-                    // Eşleşme hesapla
                     const matchData = calculateMatch(myProf, oppProf);
                     setMatchLevel(matchData.level);
                     setSharedCategories(matchData.shared);
                     
                     if (data.messages) setMessages(data.messages);
 
-                    // Ekranı değiştir
                     if (gameState === GAME_STATES.SEARCHING || gameState === GAME_STATES.LOBBY) {
-                        log("Eşleşme tamamlandı, sohbet başlıyor.");
                         setGameState(GAME_STATES.MATCH_FOUND);
                         setTimeout(() => setGameState(GAME_STATES.CHAT), 3000);
                     }
-                }, (err) => {
-                    log("Game Listener Error: " + err.message);
                 });
             };
 
             const calculateMatch = (p1Profile, p2Profile) => {
                 if(!p1Profile || !p2Profile) return { level: MATCH_LEVELS[0], shared: [], score: 0 };
-                
                 let score = 0;
                 const shared = [];
                 QUESTIONS.forEach(q => {
@@ -361,27 +342,35 @@
                     return;
                 }
 
-                const newMessage = { 
-                    senderId: user.uid, 
-                    text: inputText,
-                    timestamp: Date.now() 
-                };
-
+                const newMessage = { senderId: user.uid, text: inputText, timestamp: Date.now() };
                 const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', gameId);
                 try {
-                    // Array'in tamamını okuyup yazıyoruz (basitlik için)
                     const updatedMessages = [...messages, newMessage];
                     await updateDoc(gameRef, { messages: updatedMessages });
                     setInputText("");
                     setQuestionsLeft(prev => prev - 1);
-                } catch (e) {
-                    log("Mesaj gönderme hatası: " + e.message);
-                }
+                } catch (e) {}
             };
 
-            // --- EKRANLAR ---
+            // --- COMPONENTS ---
+            const AuthErrorBanner = () => (
+                authError ? (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <div className="bg-red-900/90 border border-red-500 rounded-xl p-6 max-w-md text-center shadow-2xl animate-bounce-in">
+                            <Icon name="alert-triangle" size={48} className="mx-auto text-red-200 mb-4" />
+                            <h3 className="text-xl font-bold text-white mb-2">{authError.title}</h3>
+                            <p className="text-red-100 mb-6">{authError.msg}</p>
+                            <button onClick={() => window.location.reload()} className="bg-white text-red-900 px-6 py-2 rounded-full font-bold hover:bg-red-100 transition-colors">
+                                Sayfayı Yenile
+                            </button>
+                        </div>
+                    </div>
+                ) : null
+            );
+
             const renderProfileScreen = () => (
                 <div className="max-w-4xl mx-auto p-6 pb-20 animate-fade-in">
+                    <AuthErrorBanner />
                     <div className="text-center mb-8">
                         <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-2">Ruh Eşi Algoritması</h1>
                         <p className="text-gray-400">Profilini oluştur, kaderindeki kişiyle eşleş.</p>
@@ -405,8 +394,8 @@
                         ))}
                     </div>
                     <div className="mt-8 flex justify-center pb-10">
-                        <button disabled={!isProfileComplete} onClick={() => setGameState(GAME_STATES.LOBBY)} className={`px-12 py-4 rounded-full font-bold text-lg transition-all transform ${isProfileComplete ? 'bg-gradient-to-r from-pink-600 to-violet-600 text-white hover:scale-105 hover:shadow-xl shadow-purple-500/20' : 'bg-gray-800 text-gray-600 cursor-not-allowed border border-gray-700'}`}>
-                            {isProfileComplete ? "Lobiye Giriş Yap" : "Lütfen Tüm Soruları Cevapla"}
+                        <button disabled={!isProfileComplete || !user} onClick={() => setGameState(GAME_STATES.LOBBY)} className={`px-12 py-4 rounded-full font-bold text-lg transition-all transform ${isProfileComplete && user ? 'bg-gradient-to-r from-pink-600 to-violet-600 text-white hover:scale-105 hover:shadow-xl shadow-purple-500/20' : 'bg-gray-800 text-gray-600 cursor-not-allowed border border-gray-700'}`}>
+                            {!user ? "Bağlanılıyor..." : isProfileComplete ? "Lobiye Giriş Yap" : "Lütfen Tüm Soruları Cevapla"}
                         </button>
                     </div>
                 </div>
@@ -419,11 +408,9 @@
                         <span className="text-gray-300 text-sm font-medium">{onlineCount} Kişi Online</span>
                     </div>
                     
-                    {/* HATA MESAJI GÖSTERGESİ */}
                     {systemMessage && (
                          <div className="absolute top-20 bg-red-900/80 text-white px-6 py-3 rounded-lg border border-red-500 shadow-xl z-50 animate-bounce text-center max-w-md">
-                             <Icon name="alert-circle" className="inline mr-2"/> 
-                             {systemMessage}
+                             <Icon name="alert-circle" className="inline mr-2"/> {systemMessage}
                          </div>
                     )}
 
@@ -438,12 +425,7 @@
                             </div>
                         </div>
                     </div>
-                    <p className="mt-16 text-gray-500 text-center max-w-md text-sm font-medium tracking-wide uppercase">Butona bas ve bekle. Eğer online kimse yoksa, ilk gelen kişiyle eşleşeceksin.</p>
-                    
-                    {/* Debug Log (Geliştirici için) - İsterseniz kaldırabilirsiniz */}
-                    {/* <div className="fixed bottom-0 left-0 w-full h-24 bg-black/80 text-green-400 text-xs p-2 overflow-y-auto font-mono z-50 pointer-events-none opacity-50">
-                        {debugLog}
-                    </div> */}
+                    <p className="mt-16 text-gray-500 text-center max-w-md text-sm font-medium tracking-wide uppercase">Butona bas ve bekle. Online kimse yoksa, ilk gelen kişiyle eşleşeceksin.</p>
                 </div>
             );
 
@@ -454,10 +436,7 @@
                         <div className="absolute inset-2 border-b-4 border-violet-500 rounded-full animate-spin reverse"></div>
                     </div>
                     <h3 className="mt-8 text-2xl font-bold text-white">Eşleşme Aranıyor...</h3>
-                    <p className="mt-2 text-gray-500 text-sm text-center max-w-xs">
-                        Kuyrukta bekleyenler kontrol ediliyor.<br/>
-                        Kimse yoksa bekleme listesine alınacaksın.
-                    </p>
+                    <p className="mt-2 text-gray-500 text-sm text-center max-w-xs">Kuyrukta bekleyenler kontrol ediliyor.<br/>Kimse yoksa bekleme listesine alınacaksın.</p>
                     <button onClick={() => { setGameState(GAME_STATES.LOBBY); setSystemMessage(null); }} className="mt-8 px-6 py-2 bg-gray-800 rounded-full text-sm hover:bg-gray-700 border border-gray-700">İptal Et</button>
                 </div>
             );
