@@ -15,7 +15,7 @@
     <!-- JSX Derleyicisi -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
-    <!-- FIREBASE (Compat Sürümü - Siyah Ekranı Önler) -->
+    <!-- FIREBASE (Compat Sürümü - En Kararlı Sürüm) -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
@@ -40,11 +40,6 @@
         .circle-bg { fill: none; stroke: #374151; stroke-width: 3.8; }
         .circle { fill: none; stroke-width: 2.8; stroke-linecap: round; animation: progress 1s ease-out forwards; }
         @keyframes progress { 0% { stroke-dasharray: 0 100; } }
-        
-        /* Slider */
-        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
-        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #db2777; cursor: pointer; margin-top: -6px; }
-        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #4b5563; border-radius: 2px; }
     </style>
 </head>
 <body class="bg-[#09090b] text-white font-sans selection:bg-pink-500 selection:text-white overflow-x-hidden">
@@ -53,7 +48,7 @@
 
     <script type="text/babel">
         // ==================================================================
-        // FIREBASE AYARLARI (KENDİ BİLGİLERİNİZLE DOLDURUN)
+        // FIREBASE AYARLARI
         // ==================================================================
         const firebaseConfig = {
             apiKey: "AIzaSyC67niOAv8lLVAlDDRVSCQFTdyJO2eMn94",
@@ -65,17 +60,17 @@
             measurementId: "G-FLFVH8Z4R9"
         };
 
-        // Firebase Başlatma (Compat)
+        // Firebase Başlatma
         if (!firebase.apps.length) {
             firebase.initializeApp(firebaseConfig);
         }
         const auth = firebase.auth();
         const db = firebase.firestore();
         
-        const APP_ID = "mystery-connection-v12"; // Temiz başlangıç
+        const APP_ID = "mystery-connection-v13"; // Temiz başlangıç
 
         // ==================================================================
-        // 🎵 MÜZİK URL 🎵
+        // 🎵 MÜZİK DOSYASI 🎵
         // ==================================================================
         const BACKGROUND_MUSIC_URL = "Inner Stillness.mp3"; 
         
@@ -385,7 +380,7 @@
                         <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2"><Icon name="settings" className="text-pink-500"/> Ayarlar</h2>
                         <div className="space-y-4">
                             <button onClick={() => { setShowSettings(false); setGameState(GAME_STATES.PROFILE); }} className="w-full flex items-center gap-3 bg-gray-700 hover:bg-gray-600 p-3 rounded-xl transition-colors text-left"><Icon name="edit-3" size={20} className="text-blue-400" /> Özelliklerimi Değiştir</button>
-                            <div className="bg-gray-700 p-3 rounded-xl"><div className="flex justify-between mb-2 text-sm text-gray-300"><span className="flex items-center gap-2"><Icon name="music" size={16}/> Müzik Sesi</span><span>{Math.round(volume * 100)}%</span></div><input type="range" min="0" max="1" step="0.1" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} /></div>
+                            <div className="bg-gray-700 p-3 rounded-xl"><div className="flex justify-between mb-2 text-sm text-gray-300"><span className="flex items-center gap-2"><Icon name="music" size={16}/> Müzik Sesi</span><span>{Math.round(volume * 100)}%</span></div><input type="range" min="0" max="1" step="0.1" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer accent-pink-500" /></div>
                             <button onClick={handleLogout} className="w-full flex items-center gap-3 bg-gray-700 hover:bg-gray-600 p-3 rounded-xl transition-colors text-left text-yellow-500"><Icon name="log-out" size={20} /> Çıkış Yap</button>
                             <button onClick={() => setShowDeleteConfirm(true)} className="w-full flex items-center gap-3 bg-red-900/30 hover:bg-red-900/50 border border-red-900 p-3 rounded-xl transition-colors text-left text-red-400"><Icon name="trash-2" size={20} /> Hesabımı Sil</button>
                         </div>
