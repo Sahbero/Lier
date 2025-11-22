@@ -10,7 +10,8 @@
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Lucide İkon Seti (Daha kararlı sürüm) -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
     
     <style>
         @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
@@ -63,9 +64,9 @@
             console.error("Firebase başlatma hatası:", e);
         }
         
-        const APP_ID = "mystery-connection-v7"; // Puanlama değişikliği için versiyonu artırdık
+        const APP_ID = "mystery-connection-v8"; // İkon ve Paylaşım güncellemesi
 
-        // --- IKON BİLEŞENİ ---
+        // --- IKON BİLEŞENİ (Geliştirilmiş) ---
         const Icon = ({ name, size = 24, className = "" }) => {
             const iconRef = React.useRef(null);
             React.useEffect(() => {
@@ -73,11 +74,17 @@
                     window.lucide.createIcons({
                         root: iconRef.current,
                         nameAttr: 'data-name',
-                        attrs: { class: `lucide lucide-${name} ${className}`, width: size, height: size }
+                        attrs: { 
+                            class: `lucide lucide-${name} ${className}`, 
+                            width: size, 
+                            height: size,
+                            'stroke-width': 2 
+                        }
                     });
                 }
             }, [name, size, className]);
-            return <span ref={iconRef} data-name={name} className="inline-flex items-center justify-center"></span>;
+            // data-name attribute is essential for lucide.createIcons to work
+            return <span ref={iconRef} data-name={name} className={`inline-flex items-center justify-center ${className}`}></span>;
         };
 
         // --- SABİTLER ---
@@ -95,11 +102,11 @@
         };
 
         const MATCH_LEVELS = [
-            { id: 0, label: "Farklı Dünyaların İnsanı", color: "text-gray-500", limit: 0, desc: "Hiçbir ortak nokta yok." },
-            { id: 1, label: "Tesadüfi Benzerlik", color: "text-blue-400", limit: 1, desc: "Sadece 1 ortak nokta." },
-            { id: 2, label: "Ortak Frekans", color: "text-green-400", limit: 2, desc: "Birkaç ortak nokta." },
-            { id: 3, label: "Güçlü Bağ", color: "text-purple-400", limit: 3, desc: "Birçok ortak nokta." },
-            { id: 4, label: "Ruh Eşi", color: "text-pink-500", limit: 99, desc: "Neredeyse aynısınız!" }
+            { id: 0, label: "Farklı Dünyalar", color: "text-gray-500", limit: 0 },
+            { id: 1, label: "Tesadüfi Benzerlik", color: "text-blue-400", limit: 1 },
+            { id: 2, label: "Ortak Frekans", color: "text-green-400", limit: 2 },
+            { id: 3, label: "Güçlü Bağ", color: "text-purple-400", limit: 3 },
+            { id: 4, label: "Ruh Eşi", color: "text-pink-500", limit: 99 }
         ];
 
         const QUESTIONS = [
@@ -191,11 +198,10 @@
 
             useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-            // 3. INBOX LISTENER (PERSISTENCE FIX: Removed orderBy to avoid index errors)
+            // 3. INBOX LISTENER
             useEffect(() => {
                 if (!user || gameState === GAME_STATES.AUTH) return;
                 const gamesRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'games');
-                // DÜZELTME: orderBy kaldırıldı, client-side sıralama yapılıyor (Mesajların kaybolmaması için)
                 const q = query(gamesRef); 
                 const unsubInbox = onSnapshot(q, (snapshot) => {
                     const myGames = snapshot.docs
@@ -245,7 +251,6 @@
                     console.error("Auth error:", error);
                     let msg = "Bir hata oluştu. Lütfen tekrar deneyin.";
                     
-                    // DÜZELTME: Kullanıcı adı hatası özelleştirildi
                     if (error.message === "USERNAME_TAKEN") msg = "Bu kullanıcı adı alınmış, farklı bir tane deneyin.";
                     else if (error.code === 'auth/email-already-in-use') msg = "Bu kullanıcı adı kullanımda.";
                     else if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') msg = "Kullanıcı adı veya şifre hatalı.";
@@ -416,7 +421,7 @@
                     const gameSnapDirect = await getDoc(gameRef);
                     const gData = gameSnapDirect.data();
                     const nextTurn = gData.player1.userId === user.uid ? gData.player2.userId : gData.player1.userId;
-                    const newMessage = { senderId: user.uid, text: inputText, timestamp: Date.now() };
+                    const newMessage = { senderId: user.uid, text: inputText, timestamp: Date.now(), type: 'text' };
                     await updateDoc(gameRef, { messages: [...(gData.messages || []), newMessage], currentTurn: nextTurn });
                     setInputText("");
                 } catch (e) {}
@@ -433,61 +438,61 @@
                 setGuesses(prev => ({ ...prev, [catId]: !prev[catId] }));
             };
 
-            // --- DÜZELTİLMİŞ PUANLAMA SİSTEMİ ---
             const finalizeScore = () => {
                 let finalScore = 0;
                 const correctLevel = guessedLevel.id === matchLevel.id;
-                
-                // 1. Seviye Puanı (40 Puan)
-                if (correctLevel) {
-                    finalScore += 40;
-                }
+                if (correctLevel) finalScore += 40;
 
-                // 2. Özellik Puanı (60 Puan üzerinden ağırlıklı)
                 const totalShared = sharedCategories.length;
-                
-                // EŞLEŞME VARSA (TotalShared > 0)
                 if (totalShared > 0) {
                     let correctGuessesCount = 0;
                     let wrongGuessesCount = 0;
-                    
                     Object.keys(guesses).forEach(key => {
                         if (guesses[key]) {
                             if (sharedCategories.includes(key)) correctGuessesCount++;
                             else wrongGuessesCount++;
                         }
                     });
-
-                    // Her doğru tahminin değeri: 60 / Toplam Ortak Özellik
                     const pointsPerCorrect = 60 / totalShared;
-                    const pointsPerWrong = pointsPerCorrect; // Yanlışlar da aynı oranda ceza yer
-
                     finalScore += (correctGuessesCount * pointsPerCorrect);
-                    finalScore -= (wrongGuessesCount * pointsPerWrong);
-                } 
-                // EŞLEŞME YOKSA (TotalShared == 0, yani Farklı Dünyalar)
-                else {
+                    finalScore -= (wrongGuessesCount * pointsPerCorrect);
+                } else {
                     const selectedCount = Object.values(guesses).filter(Boolean).length;
-                    if (selectedCount === 0) {
-                        // Hiçbir şey seçmediyse (doğru hareket) full puan
-                        finalScore += 60; 
-                    } else {
-                        // Yanlış yere özellik seçtiyse puan yok
-                        finalScore += 0;
-                    }
+                    if (selectedCount === 0) finalScore += 60; 
                 }
 
-                // Puanı 0-100 arasına sıkıştır ve tam sayı yap
                 finalScore = Math.max(0, Math.min(100, Math.round(finalScore)));
-                
                 setScore(finalScore);
                 setGameState(GAME_STATES.RESULT);
             };
 
+            // --- YENİ: GRAFİKLİ SONUÇ PAYLAŞIMI ---
             const shareResults = async () => {
                 if (!gameId) return;
                 const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', gameId);
-                await updateDoc(gameRef, { status: 'shared' });
+                
+                // Sonuç kartı için özel mesaj oluştur
+                const resultMessage = {
+                    senderId: user.uid,
+                    type: 'result_card',
+                    timestamp: Date.now(),
+                    data: {
+                        score: score,
+                        guessedLevel: guessedLevel.label,
+                        realLevel: matchLevel.label,
+                        sharedCount: sharedCategories.length
+                    }
+                };
+
+                // Mevcut mesajları çekip üzerine ekle
+                const gameSnap = await getDoc(gameRef);
+                const currentMessages = gameSnap.data().messages || [];
+
+                await updateDoc(gameRef, { 
+                    status: 'shared',
+                    messages: [...currentMessages, resultMessage] 
+                });
+                
                 setSystemMessage("Sonuçlar gönderildi!");
                 setTimeout(() => { setSystemMessage(null); setGameState(GAME_STATES.LOBBY); }, 2000);
             };
@@ -496,7 +501,7 @@
                 setGameId(game.id);
                 setIsUnlimitedChat(true);
                 startGameListener(game.id);
-                setGameState(GAME_STATES.RESULT); // Önce sonucu gösterir, oradan sohbete girilir
+                setGameState(GAME_STATES.RESULT);
             };
 
             // --- RENDERLAR ---
@@ -583,13 +588,24 @@
             const renderLobbyScreen = () => (
                 <div className="flex flex-col items-center justify-center h-[80vh] animate-fade-in relative">
                     <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center">
-                        <button onClick={() => setGameState(GAME_STATES.INBOX)} className="relative bg-gray-800 p-3 rounded-full hover:bg-gray-700 transition-colors border border-gray-600">
-                            <Icon name="mail" size={24} className="text-white" />{inboxGames.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-xs w-5 h-5 flex items-center justify-center rounded-full">{inboxGames.length}</span>}
+                        {/* LOBBY BUTONLARI: Gelen Kutusu, Profil, Çıkış */}
+                        <button onClick={() => setGameState(GAME_STATES.INBOX)} className="relative bg-gray-800 p-3 rounded-full hover:bg-gray-700 transition-colors border border-gray-600 flex items-center justify-center group" title="Gelen Kutusu">
+                            <Icon name="mail" size={24} className="text-white" />
+                            {inboxGames.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-xs w-5 h-5 flex items-center justify-center rounded-full">{inboxGames.length}</span>}
                         </button>
-                        <div className="flex items-center gap-2 bg-gray-800 px-4 py-2 rounded-full border border-gray-700"><div className={`w-2 h-2 rounded-full ${onlineCount > 0 ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div><span className="text-gray-300 text-sm">{onlineCount} Online</span></div>
+                        
+                        <div className="flex items-center gap-2 bg-gray-800 px-4 py-2 rounded-full border border-gray-700">
+                            <div className={`w-2 h-2 rounded-full ${onlineCount > 0 ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                            <span className="text-gray-300 text-sm">{onlineCount} Online</span>
+                        </div>
+                        
                         <div className="flex gap-2">
-                            <button onClick={() => setGameState(GAME_STATES.PROFILE)} className="bg-gray-800 p-3 rounded-full hover:bg-gray-700 transition-colors border border-gray-600"><Icon name="edit-3" size={24} className="text-white" /></button>
-                            <button onClick={handleLogout} className="bg-gray-800 p-3 rounded-full hover:bg-red-900/50 transition-colors border border-gray-600"><Icon name="log-out" size={24} className="text-red-400" /></button>
+                            <button onClick={() => setGameState(GAME_STATES.PROFILE)} className="bg-gray-800 p-3 rounded-full hover:bg-gray-700 transition-colors border border-gray-600 flex items-center justify-center" title="Profili Düzenle">
+                                <Icon name="pen-tool" size={24} className="text-white" />
+                            </button>
+                            <button onClick={handleLogout} className="bg-gray-800 p-3 rounded-full hover:bg-red-900/50 transition-colors border border-gray-600 flex items-center justify-center" title="Çıkış Yap">
+                                <Icon name="log-out" size={24} className="text-red-400" />
+                            </button>
                         </div>
                     </div>
                     {systemMessage && <div className="absolute top-20 bg-green-600 text-white px-6 py-3 rounded-lg shadow-xl z-50 animate-bounce">{systemMessage}</div>}
@@ -622,7 +638,7 @@
 
             const renderChatScreen = () => {
                 const isMyTurn = currentTurn === user.uid;
-                const myMessagesCount = messages.filter(m => m.senderId === user.uid).length;
+                const myMessagesCount = messages.filter(m => m.senderId === user.uid && m.type !== 'result_card').length;
                 const remainingRights = 3 - myMessagesCount;
                 return (
                     <div className="h-[85vh] flex flex-col max-w-3xl mx-auto">
@@ -635,14 +651,40 @@
                         </div>
                         <div className="flex-1 bg-gray-900/50 overflow-y-auto p-4 space-y-4 scrollbar-thin relative">
                             {systemMessage && <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-600/90 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-xl z-50 animate-bounce">{systemMessage}</div>}
-                            {messages.map((msg, idx) => { const isMe = msg.senderId === user.uid; return (<div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[80%] p-3 rounded-2xl ${isMe ? 'bg-pink-600 text-white rounded-tr-none' : 'bg-gray-700 text-gray-200 rounded-tl-none'}`}>{msg.text}</div></div>); })}
+                            
+                            {messages.map((msg, idx) => {
+                                const isMe = msg.senderId === user.uid;
+                                
+                                // ÖZEL SONUÇ KARTI RENDERI
+                                if (msg.type === 'result_card') {
+                                    return (
+                                        <div key={idx} className="flex justify-center my-4">
+                                            <div className="bg-gray-800 border border-pink-500/50 rounded-xl p-4 w-64 text-center shadow-lg animate-fade-in">
+                                                <div className="text-xs text-pink-400 font-bold uppercase tracking-widest mb-2">OYUN SONUCU</div>
+                                                <div className="text-3xl font-black text-white mb-1">{msg.data.score} <span className="text-xs text-gray-400">PUAN</span></div>
+                                                <div className="text-sm text-gray-300 mb-2">{msg.data.guessedLevel}</div>
+                                                <div className="text-xs text-gray-500 border-t border-gray-700 pt-2 mt-2">
+                                                    {isMe ? "Senin Sonucun" : `${opponentProfile.name} Sonucu`}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                        <div className={`max-w-[80%] p-3 rounded-2xl ${isMe ? 'bg-pink-600 text-white rounded-tr-none' : 'bg-gray-700 text-gray-200 rounded-tl-none'}`}>
+                                            {msg.text}
+                                        </div>
+                                    </div>
+                                );
+                            })}
                             <div ref={chatEndRef} />
                         </div>
                         <div className="p-4 bg-gray-800 rounded-b-xl border-t border-gray-700">
                             {!isUnlimitedChat && (<div className="mb-2 text-center">{isMyTurn ? <span className="text-green-400 text-xs font-bold animate-pulse">● Sıra Sende!</span> : <span className="text-gray-500 text-xs font-bold">○ Karşı taraf yazıyor...</span>}</div>)}
                             <div className="flex gap-2 items-center">
                                 <input type="text" disabled={!isUnlimitedChat && !isMyTurn} value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Mesajını yaz..." className={`flex-1 bg-gray-900 border border-gray-700 rounded-full px-6 py-3 text-white outline-none ${!isUnlimitedChat && !isMyTurn && 'opacity-50'}`} />
-                                {/* DÜZELTME: Gönder butonu ikon olarak ayarlandı */}
                                 <button disabled={!isUnlimitedChat && !isMyTurn} onClick={sendMessage} className={`bg-blue-600 hover:bg-blue-700 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110 ${!isUnlimitedChat && !isMyTurn && 'opacity-50 cursor-not-allowed'}`}><Icon name="send" size={20} /></button>
                             </div>
                         </div>
