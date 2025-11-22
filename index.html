@@ -121,7 +121,7 @@
             const [sharedCategories, setSharedCategories] = useState([]);
             
             const [gameId, setGameId] = useState(null);
-            const [currentTurn, setCurrentTurn] = useState(null); // KİMİN SIRASI?
+            const [currentTurn, setCurrentTurn] = useState(null);
             const [onlineCount, setOnlineCount] = useState(0);
             const unsubscribeGameRef = useRef(null);
 
@@ -160,15 +160,27 @@
 
             useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-            // PROFIL VALIDATION
             const handleInputChange = (id, value) => setUserProfile(prev => ({ ...prev, [id]: value }));
             const isProfileComplete = userProfile.name && userProfile.age && QUESTIONS.every(q => userProfile[q.id] && userProfile[q.id].trim() !== "");
 
-            // 3. MATCHMAKING (Sıra Belirleme Eklendi)
+            // 3. MATCHMAKING (Benzersiz Maç Bileti Eklendi)
             const startMatchmaking = async () => {
                 if (!user) return;
+
+                // Eski verileri sıfırla
+                setMessages([]);
+                setGameId(null);
+                setCurrentTurn(null);
+                setOpponentProfile({});
+                setGuesses({});
+                setGuessedLevel(null);
+
                 setGameState(GAME_STATES.SEARCHING);
                 setSystemMessage(null);
+
+                // BU OYUN İÇİN BENZERSİZ BİR BİLET OLUŞTUR
+                // Bu, sadece bu arama seansına ait oyunları kabul etmemizi sağlar.
+                const myMatchToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
 
                 const queueRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'matchmaking_queue');
                 const gamesRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'games');
@@ -178,19 +190,19 @@
                     const opponentDoc = snapshot.docs.find(doc => doc.data().userId !== user.uid);
 
                     if (opponentDoc) {
-                        // --- EŞLEŞME KURAN KİŞİ ---
+                        // --- EŞLEŞME KURAN (GUEST) ---
                         const opponentData = opponentDoc.data();
                         try {
                             await deleteDoc(opponentDoc.ref);
                             
-                            // RASTGELE BAŞLANGIÇ SIRASI
                             const starter = Math.random() < 0.5 ? user.uid : opponentData.userId;
 
                             const newGameRef = await addDoc(gamesRef, {
                                 player1: opponentData,
                                 player2: { userId: user.uid, profile: userProfile },
                                 status: 'active',
-                                currentTurn: starter, // Sıra kimde?
+                                matchToken: opponentData.matchToken, // RAKİBİN BİLETİNİ KULLAN
+                                currentTurn: starter,
                                 createdAt: serverTimestamp(),
                                 messages: []
                             });
@@ -198,16 +210,24 @@
                             startGameListener(newGameRef.id);
                         } catch (e) { setTimeout(startMatchmaking, 500); }
                     } else {
-                        // --- BEKLEYEN KİŞİ ---
+                        // --- BEKLEYEN (HOST) ---
+                        // Eski kuyruk kayıtlarını sil
                         const myOldEntries = snapshot.docs.filter(doc => doc.data().userId === user.uid);
                         myOldEntries.forEach(d => deleteDoc(d.ref));
 
-                        const myQueueRef = await addDoc(queueRef, { userId: user.uid, profile: userProfile, createdAt: serverTimestamp() });
+                        const myQueueRef = await addDoc(queueRef, { 
+                            userId: user.uid, 
+                            profile: userProfile, 
+                            createdAt: serverTimestamp(),
+                            matchToken: myMatchToken // BİLETİMİ KUYRUĞA KOYUYORUM
+                        });
 
+                        // Sadece benim biletimi taşıyan yeni oyunu bekle
                         const unsubGameWait = onSnapshot(gamesRef, (gameSnap) => {
                             const myGame = gameSnap.docs.find(d => {
                                 const data = d.data();
-                                return data.player1 && data.player1.userId === user.uid && data.status === 'active';
+                                // Hem active olacak hem de benim şu anki biletimle eşleşecek
+                                return data.matchToken === myMatchToken && data.status === 'active';
                             });
                             if (myGame) {
                                 deleteDoc(myQueueRef).catch(() => {}); 
@@ -236,7 +256,7 @@
                     const oppProf = isP1 ? data.player2.profile : data.player1.profile;
                     
                     setOpponentProfile(oppProf);
-                    setCurrentTurn(data.currentTurn); // Sıra kimde bilgisini al
+                    setCurrentTurn(data.currentTurn);
                     
                     const matchData = calculateMatch(myProf, oppProf);
                     setMatchLevel(matchData.level);
@@ -244,13 +264,11 @@
                     
                     if (data.messages) setMessages(data.messages);
 
-                    // BUG FIX: Sadece lobby veya searching modundaysan geçiş yap.
                     setGameState(prevState => {
                         if (prevState === GAME_STATES.SEARCHING || prevState === GAME_STATES.LOBBY) {
                             setTimeout(() => setGameState(GAME_STATES.CHAT), 3000);
                             return GAME_STATES.MATCH_FOUND;
                         }
-                        // 3 Mesaj Kuralı: Toplam mesaj 6 olduğunda tahmin ekranına at
                         if (prevState === GAME_STATES.CHAT && data.messages && data.messages.length >= 6) {
                              return GAME_STATES.GUESS_LEVEL;
                         }
@@ -279,19 +297,16 @@
             const sendMessage = async () => {
                 if (!inputText.trim() || !gameId) return;
                 
-                // SIRA KONTROLÜ
                 if (currentTurn !== user.uid) {
                     setSystemMessage("Sıra henüz sende değil!");
                     setTimeout(() => setSystemMessage(null), 2000);
                     return;
                 }
 
-                // YASAKLI KELİME KONTROLÜ (Gelişmiş)
                 const forbiddenWords = Object.values(userProfile).map(v => String(v).toLowerCase());
                 const inputLower = inputText.toLowerCase();
                 const hasForbidden = forbiddenWords.some(word => word.length > 2 && inputLower.includes(word));
 
-                // DÜZELTİLMİŞ MESAJ GÖNDERME MANTIĞI
                 const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', gameId);
                 
                 if (hasForbidden) {
@@ -302,15 +317,11 @@
                 }
                 
                 try {
-                    // Önce oyun durumunu çekelim ki sıranın kime geçeceğini bulalım
                     const gameSnapDirect = await getDoc(gameRef);
                     if (!gameSnapDirect.exists()) return;
                     
                     const gData = gameSnapDirect.data();
-                    // Eğer Player1 isem sıra Player2'ye geçer, değilse Player1'e geçer
                     const nextTurn = gData.player1.userId === user.uid ? gData.player2.userId : gData.player1.userId;
-                    
-                    // Mevcut mesajların üzerine ekle
                     const currentMessages = gData.messages || [];
                     const newMessage = { senderId: user.uid, text: inputText, timestamp: Date.now() };
 
@@ -334,7 +345,6 @@
                         <p className="text-gray-400">Profilini doldur, ismini gizlemeden oyna.</p>
                     </div>
 
-                    {/* İSİM VE YAŞ GİRİŞİ */}
                     <div className="bg-gray-800/80 p-6 rounded-xl border border-gray-700 mb-6 flex flex-col md:flex-row gap-4">
                         <div className="flex-1">
                             <label className="block text-sm font-medium text-gray-400 mb-1">İsminiz (Oyunda Görünecek)</label>
@@ -597,7 +607,18 @@
                             </div>
                         </div>
                         <div className="mt-8 flex justify-center">
-                            <button onClick={() => { setGameState(GAME_STATES.LOBBY); setGameId(null); setMessages([]); setQuestionsLeft(3); setCurrentTurn(null); }} className="text-gray-400 hover:text-white font-medium underline decoration-pink-500 underline-offset-4 transition-colors">Yeni Bir Şans Dene</button>
+                            <button 
+                                onClick={() => { 
+                                    setGameState(GAME_STATES.LOBBY); 
+                                    setGameId(null); 
+                                    setMessages([]); 
+                                    setQuestionsLeft(3); 
+                                    setCurrentTurn(null); 
+                                }} 
+                                className="bg-white text-black px-8 py-3 rounded-full font-bold text-lg hover:bg-gray-200 transition-all shadow-lg hover:scale-105"
+                            >
+                                Yeni Bir Şans Dene
+                            </button>
                         </div>
                     </div>
                 );
