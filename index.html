@@ -21,7 +21,6 @@
         .scrollbar-thin::-webkit-scrollbar-track { background: #1f2937; }
         .scrollbar-thin::-webkit-scrollbar-thumb { background: #db2777; border-radius: 20px; }
         
-        /* Dairesel Progress Bar için */
         .circular-chart { display: block; margin: 0 auto; max-width: 100%; max-height: 250px; }
         .circle-bg { fill: none; stroke: #374151; stroke-width: 3.8; }
         .circle { fill: none; stroke-width: 2.8; stroke-linecap: round; animation: progress 1s ease-out forwards; }
@@ -64,7 +63,6 @@
             console.error("Firebase başlatma hatası:", e);
         }
         
-        // Versiyon v6: Auth sistemi eklendiği için yeni namespace
         const APP_ID = "mystery-connection-v6"; 
 
         // --- IKON BİLEŞENİ ---
@@ -84,7 +82,7 @@
 
         // --- SABİTLER ---
         const GAME_STATES = {
-            AUTH: 'AUTH', // Yeni giriş ekranı
+            AUTH: 'AUTH',
             PROFILE: 'PROFILE',
             LOBBY: 'LOBBY',
             SEARCHING: 'SEARCHING',
@@ -123,14 +121,14 @@
             const { useState, useEffect, useRef } = React;
             
             const [user, setUser] = useState(null);
+            const [authError, setAuthError] = useState(null);
             const [gameState, setGameState] = useState(GAME_STATES.AUTH);
             const [userProfile, setUserProfile] = useState({ name: '', age: '' });
             const [opponentProfile, setOpponentProfile] = useState({});
             const [matchLevel, setMatchLevel] = useState(null);
             const [sharedCategories, setSharedCategories] = useState([]);
             
-            // Auth States
-            const [authMode, setAuthMode] = useState('LOGIN'); // 'LOGIN' or 'REGISTER'
+            const [authMode, setAuthMode] = useState('LOGIN');
             const [authCreds, setAuthCreds] = useState({ username: '', password: '' });
             const [authLoading, setAuthLoading] = useState(false);
 
@@ -157,8 +155,8 @@
                 const unsubscribe = onAuthStateChanged(auth, async (u) => { 
                     if (u) {
                         setUser(u);
-                        // Profili çek
-                        const docRef = doc(db, 'artifacts', APP_ID, 'users', u.uid);
+                        // DÜZELTME: Kullanıcı profili artık 'users/{uid}/data/profile' altında aranıyor (Rule 1'e uygun)
+                        const docRef = doc(db, 'artifacts', APP_ID, 'users', u.uid, 'data', 'profile');
                         const docSnap = await getDoc(docRef);
                         if (docSnap.exists()) {
                             setUserProfile(docSnap.data());
@@ -177,12 +175,14 @@
             // 2. ONLINE PRESENCE
             useEffect(() => {
                 if (!user) return;
-                const updatePresence = () => {
-                    const presenceRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'presence', user.uid);
-                    setDoc(presenceRef, { lastSeen: serverTimestamp(), userId: user.uid }, { merge: true });
-                };
-                updatePresence();
-                const interval = setInterval(updatePresence, 30000);
+                // Presence verisi public data altında olmalı
+                const presenceRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'presence', user.uid);
+                setDoc(presenceRef, { lastSeen: serverTimestamp(), userId: user.uid }, { merge: true }).catch(() => {});
+                
+                const interval = setInterval(() => {
+                    setDoc(presenceRef, { lastSeen: serverTimestamp(), userId: user.uid }, { merge: true }).catch(() => {});
+                }, 30000);
+
                 const presenceColl = collection(db, 'artifacts', APP_ID, 'public', 'data', 'presence');
                 const unsubPresence = onSnapshot(presenceColl, (snapshot) => {
                     const now = new Date();
@@ -217,40 +217,44 @@
                 setAuthLoading(true);
                 setSystemMessage(null);
 
-                const email = `${authCreds.username.toLowerCase()}@gizemlibag.com`; // Fake email for Firebase Auth
+                const email = `${authCreds.username.toLowerCase()}@gizemlibag.com`;
 
                 try {
                     if (authMode === 'REGISTER') {
-                        // 1. Kullanıcı adı kontrolü (Firestore 'usernames' collection)
-                        const usernameRef = doc(db, 'artifacts', APP_ID, 'usernames', authCreds.username.toLowerCase());
+                        // DÜZELTME: Kullanıcı adı kontrolü artık 'public/data/usernames' altında (Rule 1'e uygun)
+                        const usernameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'usernames', authCreds.username.toLowerCase());
                         const usernameSnap = await getDoc(usernameRef);
                         
                         if (usernameSnap.exists()) {
                             throw new Error("Bu kullanıcı adı zaten alınmış.");
                         }
 
-                        // 2. Kayıt
+                        // Kayıt
                         const userCredential = await createUserWithEmailAndPassword(auth, email, authCreds.password);
                         const uid = userCredential.user.uid;
 
-                        // 3. Kullanıcı adı rezerve et ve kullanıcı dokümanı oluştur
+                        // DÜZELTME: Kullanıcı adı ve profil kayıt yolları güncellendi
                         await setDoc(usernameRef, { uid: uid });
-                        await setDoc(doc(db, 'artifacts', APP_ID, 'users', uid), {
+                        // Kullanıcı profili 'users/{uid}/data/profile' altına kaydediliyor
+                        await setDoc(doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'profile'), {
                             username: authCreds.username,
-                            name: authCreds.username, // Başlangıçta isim = kullanıcı adı
+                            name: authCreds.username, 
                             age: ''
                         });
                         
                     } else {
-                        // LOGIN
                         await signInWithEmailAndPassword(auth, email, authCreds.password);
                     }
                 } catch (error) {
                     console.error("Auth error:", error);
-                    let msg = "Bir hata oluştu.";
+                    let msg = "Bir hata oluştu. Lütfen tekrar deneyin.";
+                    
                     if (error.message.includes("taken")) msg = "Bu kullanıcı adı zaten alınmış.";
                     else if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') msg = "Kullanıcı adı veya şifre hatalı.";
                     else if (error.code === 'auth/email-already-in-use') msg = "Bu kullanıcı adı kullanımda.";
+                    else if (error.code === 'auth/operation-not-allowed') msg = "Lütfen Firebase Konsolunda 'Email/Password' girişini etkinleştirin!"; // Hata mesajı eklendi
+                    else if (error.code === 'permission-denied') msg = "Erişim reddedildi. Firebase kurallarını kontrol edin.";
+                    
                     setSystemMessage(msg);
                 } finally {
                     setAuthLoading(false);
@@ -263,11 +267,10 @@
                 setAuthCreds({ username: '', password: '' });
             };
 
-            // --- OYUN FONKSİYONLARI ---
-
             const saveProfile = async () => {
                 if (!user) return;
-                await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid), userProfile, { merge: true });
+                // DÜZELTME: Profil kaydı yolu güncellendi
+                await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'data', 'profile'), userProfile, { merge: true });
                 setGameState(GAME_STATES.LOBBY);
             };
 
@@ -476,7 +479,6 @@
 
             // --- RENDERLAR ---
 
-            // 1. GİRİŞ & KAYIT EKRANI
             const renderAuthScreen = () => (
                 <div className="flex flex-col items-center justify-center h-[90vh] p-6 animate-fade-in">
                     <div className="w-full max-w-md bg-gray-800/90 p-8 rounded-2xl border border-gray-700 shadow-2xl">
@@ -657,20 +659,14 @@
                     <div className="max-w-4xl mx-auto p-6 pb-20">
                         <div className="text-center mb-8">
                             <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-6">YÜZLEŞME</h2>
-                            
-                            {/* DAİRESEL PUAN TABLOSU */}
                             <div className="relative w-40 h-40 mx-auto">
                                 <svg viewBox="0 0 36 36" className="circular-chart">
                                     <path className="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                                     <path className="circle" strokeDasharray={strokeDash} stroke={score >= 70 ? "#10B981" : score >= 40 ? "#F59E0B" : "#EF4444"} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                                 </svg>
-                                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                    <span className="text-3xl font-black text-white">{score}</span>
-                                    <span className="text-[10px] text-gray-400 uppercase tracking-widest">PUAN</span>
-                                </div>
+                                <div className="absolute inset-0 flex flex-col items-center justify-center"><span className="text-3xl font-black text-white">{score}</span><span className="text-[10px] text-gray-400 uppercase tracking-widest">PUAN</span></div>
                             </div>
                         </div>
-
                         <div className="flex flex-col md:flex-row justify-center gap-6 mt-8 items-center mb-10">
                             <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 min-w-[200px] text-center"><p className="text-gray-500 text-xs uppercase">Tahminin</p><p className={`text-xl font-bold ${guessedLevel?.color}`}>{guessedLevel?.label}</p></div>
                             {levelGuessCorrect ? <Icon name="check-circle" size={32} className="text-green-500" /> : <span className="text-gray-600">VS</span>}
