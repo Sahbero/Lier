@@ -5,27 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gizemli Bağ - Ruh Eşi Algoritması</title>
     
-    <!-- 1. Tailwind CSS (Tasarım için) -->
+    <!-- Kütüphaneler -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- 2. React ve ReactDOM (Oyun Motoru) -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    
-    <!-- 3. Babel (JSX kodunu tarayıcının anlaması için) -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <!-- 4. Lucide Icons (İkonlar için script) -->
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <style>
-        /* Özel Animasyonlar */
         @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
         .animate-fade-in { animation: fade-in 0.5s ease-out; }
         @keyframes bounce-in { 0% { transform: scale(0.3); opacity: 0; } 50% { transform: scale(1.05); opacity: 1; } 70% { transform: scale(0.9); } 100% { transform: scale(1); opacity: 1; } }
         .animate-bounce-in { animation: bounce-in 0.6s cubic-bezier(0.215, 0.610, 0.355, 1.000); }
-        
-        /* Scrollbar */
         .scrollbar-thin::-webkit-scrollbar { width: 6px; }
         .scrollbar-thin::-webkit-scrollbar-track { background: #1f2937; }
         .scrollbar-thin::-webkit-scrollbar-thumb { background: #db2777; border-radius: 20px; }
@@ -35,17 +26,34 @@
 
     <div id="root"></div>
 
-    <!-- OYUN KODU -->
     <script type="text/babel" data-type="module">
-        // --- FIREBASE IMPORTS (CDN ÜZERİNDEN) ---
+        // --- FIREBASE MODÜLLERİ ---
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
         import { 
             getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, 
-            query, where, getDocs, deleteDoc, setDoc, serverTimestamp, limit, orderBy 
+            query, where, getDocs, deleteDoc, setDoc, serverTimestamp 
         } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
-        // --- IKONLARI REACT BILESENI OLARAK TANIMLAMA (CDN UYUMU ICIN) ---
+        // --- FIREBASE AYARLARI ---
+        // Lütfen aşağıdaki alanları kendi Firebase Console bilgilerinizle doldurun.
+        const firebaseConfig = {
+            apiKey: "BURAYA_API_KEY_YAZ",
+            authDomain: "BURAYA_PROJECT_ID.firebaseapp.com",
+            projectId: "BURAYA_PROJECT_ID",
+            storageBucket: "BURAYA_PROJECT_ID.appspot.com",
+            messagingSenderId: "BURAYA_SENDER_ID",
+            appId: "BURAYA_APP_ID"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        
+        // Sabit App ID (Veritabanı yolu için)
+        const APP_ID = "mystery-connection-v2"; 
+
+        // --- IKON BİLEŞENİ ---
         const Icon = ({ name, size = 24, className = "" }) => {
             const iconRef = React.useRef(null);
             React.useEffect(() => {
@@ -60,22 +68,7 @@
             return <span ref={iconRef} data-name={name} className="inline-flex items-center justify-center"></span>;
         };
 
-        // --- FIREBASE AYARLARI (BURAYI KENDİ BİLGİLERİNLE DOLDUR) ---
-        const firebaseConfig = {
-            apiKey: "BURAYA_API_KEY_YAZ",
-            authDomain: "BURAYA_PROJECT_ID.firebaseapp.com",
-            projectId: "BURAYA_PROJECT_ID",
-            storageBucket: "BURAYA_PROJECT_ID.appspot.com",
-            messagingSenderId: "BURAYA_SENDER_ID",
-            appId: "BURAYA_APP_ID"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = "gizemli-bag-web-v1";
-
-        // --- OYUN SABİTLERİ ---
+        // --- SABİTLER ---
         const GAME_STATES = {
             PROFILE: 'PROFILE',
             LOBBY: 'LOBBY',
@@ -88,7 +81,7 @@
         };
 
         const MATCH_LEVELS = [
-            { id: 0, minScore: 0, maxScore: 0, label: "Farklı Dünyaların İnsanı", color: "text-gray-500", desc: "Hiçbir ortak noktanız yok, zıt kutuplarsınız." },
+            { id: 0, minScore: 0, maxScore: 0, label: "Farklı Dünyaların İnsanı", color: "text-gray-500", desc: "Hiçbir ortak noktanız yok." },
             { id: 1, minScore: 1, maxScore: 1, label: "Tesadüfi Benzerlik", color: "text-blue-400", desc: "Sadece tek bir noktada buluştunuz." },
             { id: 2, minScore: 2, maxScore: 2, label: "Ortak Frekans", color: "text-green-400", desc: "Benzer zevklere sahipsiniz." },
             { id: 3, minScore: 3, maxScore: 3, label: "Güçlü Bağ", color: "text-purple-400", desc: "Birçok konuda hemfikirsiniz." },
@@ -121,50 +114,72 @@
             const [sharedCategories, setSharedCategories] = useState([]);
             
             const [gameId, setGameId] = useState(null);
-            const [onlineCount, setOnlineCount] = useState(1);
+            const [onlineCount, setOnlineCount] = useState(0);
             const unsubscribeGameRef = useRef(null);
 
             const [messages, setMessages] = useState([]);
             const [inputText, setInputText] = useState("");
             const [questionsLeft, setQuestionsLeft] = useState(3);
             const [systemMessage, setSystemMessage] = useState(null);
+            const [debugLog, setDebugLog] = useState(""); // Hata ayıklama için
             
             const [guessedLevel, setGuessedLevel] = useState(null);
             const [guesses, setGuesses] = useState({});
             const chatEndRef = useRef(null);
 
-            // --- INITIALIZATION & AUTH ---
+            // Helper for logging
+            const log = (msg) => {
+                console.log(msg);
+                // setDebugLog(prev => prev + "\n" + msg); // Debug'ı ekranda görmek isterseniz bunu açın
+            };
+
+            // 1. AUTHENTICATION
             useEffect(() => {
-                signInAnonymously(auth).catch(console.error);
+                log("Giriş yapılıyor...");
+                signInAnonymously(auth).catch(err => {
+                    log("Giriş hatası: " + err.message);
+                    setSystemMessage("Giriş yapılamadı. Lütfen sayfayı yenileyin.");
+                });
+                
                 const unsubscribe = onAuthStateChanged(auth, (u) => {
-                    setUser(u);
+                    if (u) {
+                        log("Giriş başarılı: " + u.uid);
+                        setUser(u);
+                    }
                 });
                 return () => unsubscribe();
             }, []);
 
-            // --- ONLINE PRESENCE ---
+            // 2. ONLINE SAYISI VE PRESENCE
             useEffect(() => {
                 if (!user) return;
-                const presenceRef = doc(db, 'artifacts', appId, 'public', 'data', 'presence', user.uid);
-                const updatePresence = () => setDoc(presenceRef, { lastSeen: serverTimestamp() }).catch(e => console.error("Presence update error:", e));
+
+                // Kendini kaydet
+                const presenceRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'presence', user.uid);
+                const updatePresence = () => {
+                    setDoc(presenceRef, { 
+                        lastSeen: serverTimestamp(),
+                        userId: user.uid 
+                    }, { merge: true }).catch(e => log("Presence update err: " + e.message));
+                };
                 
                 updatePresence();
-                const interval = setInterval(updatePresence, 30000);
+                const interval = setInterval(updatePresence, 20000); // 20sn'de bir güncelle
 
-                // DÜZELTME: orderBy kaldırıldı (Index hatasını önlemek için)
-                const presenceColl = collection(db, 'artifacts', appId, 'public', 'data', 'presence');
+                // Online Sayısını Dinle (Basit Yöntem: Tüm listeyi çek ve filtrele)
+                // NOT: Karmaşık sorgu (orderBy) kullanmıyoruz, index hatasını önlemek için.
+                const presenceColl = collection(db, 'artifacts', APP_ID, 'public', 'data', 'presence');
                 const unsubPresence = onSnapshot(presenceColl, (snapshot) => {
                     const now = new Date();
                     const activeUsers = snapshot.docs.filter(doc => {
                         const data = doc.data();
-                        // lastSeen null kontrolü (serverTimestamp yazılırken kısa süre null olabilir)
-                        if (!data.lastSeen) return false;
-                        return (now - data.lastSeen.toDate()) < 120000; // 2 dakika
+                        // lastSeen null olabilir (yazma anında), bu durumda aktif say
+                        if (!data.lastSeen) return true; 
+                        // 2 dakikadan (120000ms) eskiyse sayma
+                        return (now - data.lastSeen.toDate()) < 120000;
                     });
                     setOnlineCount(activeUsers.length);
-                }, (error) => {
-                    console.error("Online count error:", error);
-                });
+                }, (err) => log("Online count fetch err: " + err.message));
 
                 return () => {
                     clearInterval(interval);
@@ -172,80 +187,150 @@
                 };
             }, [user]);
 
+            // Scroll helper
             useEffect(() => {
                 chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
             }, [messages]);
 
+            // Profil işlemleri
             const handleInputChange = (id, value) => {
                 setUserProfile(prev => ({ ...prev, [id]: value }));
             };
-
             const isProfileComplete = QUESTIONS.every(q => userProfile[q.id] && userProfile[q.id].trim() !== "");
 
+            // 3. EŞLEŞTİRME MANTIĞI (CRITICAL FIX)
             const startMatchmaking = async () => {
                 if (!user) return;
                 setGameState(GAME_STATES.SEARCHING);
+                setSystemMessage(null);
+                log("Eşleşme aranıyor...");
 
-                const queueRef = collection(db, 'artifacts', appId, 'public', 'data', 'matchmaking_queue');
-                
+                const queueRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'matchmaking_queue');
+                const gamesRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'games');
+
                 try {
-                    // DÜZELTME: limit(1) kaldırıldı ve basit getDocs kullanıldı
+                    // A. Kuyrukta bekleyen var mı? (Index hatası olmaması için getDocs kullanıyoruz)
                     const snapshot = await getDocs(queueRef);
                     
-                    // Kendimiz olmayan ilk kişiyi bulalım
-                    const waitingUserDoc = snapshot.docs.find(doc => doc.data().userId !== user.uid);
-                    
-                    if (waitingUserDoc) {
-                        const waitingUserData = waitingUserDoc.data();
+                    // Kendimiz hariç birini bul
+                    const opponentDoc = snapshot.docs.find(doc => doc.data().userId !== user.uid);
 
-                        // Eşleşme bulundu, kuyruktan silelim
-                        await deleteDoc(waitingUserDoc.ref);
+                    if (opponentDoc) {
+                        // --- ROL: KATILIMCI (Guest) ---
+                        log("Rakip bulundu: " + opponentDoc.id + ". Bağlanılıyor...");
+                        
+                        const opponentData = opponentDoc.data();
 
-                        // Oyun oluşturalım
-                        const newGameRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'games'), {
-                            player1: waitingUserData,
-                            player2: { userId: user.uid, profile: userProfile },
-                            status: 'active',
-                            createdAt: serverTimestamp(),
-                            messages: []
-                        });
+                        // Yarış Durumu (Race Condition) Kontrolü
+                        try {
+                            // Rakibi kuyruktan silmeye çalış. Eğer başkası sildiyse burası hata verir.
+                            await deleteDoc(opponentDoc.ref);
+                            
+                            // Silme başarılıysa oyunu oluştur
+                            const newGameRef = await addDoc(gamesRef, {
+                                player1: opponentData, // Kuyruktaki (Ev Sahibi)
+                                player2: { userId: user.uid, profile: userProfile }, // Ben (Misafir)
+                                status: 'active',
+                                createdAt: serverTimestamp(),
+                                messages: []
+                            });
 
-                        setGameId(newGameRef.id);
-                        startGameListener(newGameRef.id);
+                            log("Oyun oluşturuldu: " + newGameRef.id);
+                            setGameId(newGameRef.id);
+                            // Direkt dinlemeye başla
+                            startGameListener(newGameRef.id);
+
+                        } catch (deleteError) {
+                            // Rakibi başkası kaptı, tekrar dene
+                            log("Rakip başkası tarafından alındı, tekrar aranıyor...");
+                            setTimeout(startMatchmaking, 500); // Yarım saniye bekle tekrar dene
+                        }
 
                     } else {
-                        // Kuyrukta kimse yok, kendimizi ekleyelim
+                        // --- ROL: BEKLEYEN (Host) ---
+                        log("Kuyruk boş. Beklemeye geçiliyor...");
+                        
+                        // Önce eski kuyruk kayıtlarımı temizle (Temizlik)
+                        const myOldEntries = snapshot.docs.filter(doc => doc.data().userId === user.uid);
+                        myOldEntries.forEach(d => deleteDoc(d.ref));
+
+                        // Kuyruğa ekle
                         const myQueueRef = await addDoc(queueRef, {
                             userId: user.uid,
                             profile: userProfile,
                             createdAt: serverTimestamp()
                         });
 
-                        // DÜZELTME: Çoklu where sorgusu kaldırıldı, sadece userId ile dinleyip filtreliyoruz
-                        const gamesRef = collection(db, 'artifacts', appId, 'public', 'data', 'games');
-                        const myGameQuery = query(gamesRef, where('player1.userId', '==', user.uid));
-                        
-                        const unsub = onSnapshot(myGameQuery, (snap) => {
-                            // Aktif ve yeni oluşturulmuş (bana ait) bir oyun var mı?
-                            const foundGame = snap.docs.find(doc => doc.data().status === 'active');
-                            
-                            if (foundGame) {
-                                // Biri beni buldu!
-                                deleteDoc(myQueueRef).catch(() => {}); // Kuyruğu temizle
-                                setGameId(foundGame.id);
-                                unsub(); 
-                                startGameListener(foundGame.id);
+                        // Oyunun oluşturulmasını bekle
+                        // DÜZELTME: Karmaşık sorgu yerine tüm aktif oyunları dinleyip filtrele
+                        // Bu, kullanıcı sayısı azken en güvenli yöntemdir.
+                        const unsubGameWait = onSnapshot(gamesRef, (gameSnap) => {
+                            // Player1'i ben olan ve durumu active olan oyun var mı?
+                            const myGame = gameSnap.docs.find(d => {
+                                const data = d.data();
+                                return data.player1 && data.player1.userId === user.uid && data.status === 'active';
+                            });
+
+                            if (myGame) {
+                                log("Biri oyuna katıldı! ID: " + myGame.id);
+                                // Kuyruktan çık (Garanti olsun)
+                                deleteDoc(myQueueRef).catch(() => {}); 
+                                
+                                setGameId(myGame.id);
+                                unsubGameWait(); // Beklemeyi bırak
+                                startGameListener(myGame.id);
                             }
                         });
+
+                        // İptal durumu için ref'i saklayabiliriz ama basitlik için geçiyoruz.
                     }
+
                 } catch (error) {
-                    console.error("Matchmaking error:", error);
-                    setSystemMessage("Eşleşme sırasında bir hata oluştu: " + error.message);
+                    log("Matchmaking CRITICAL Error: " + error.message);
+                    setSystemMessage("Bağlantı hatası. Lütfen tekrar dene. (" + error.message + ")");
                     setGameState(GAME_STATES.LOBBY);
                 }
             };
 
+            // 4. OYUN DİNLEYİCİSİ
+            const startGameListener = (id) => {
+                if (!user) return;
+                log("Oyun verileri dinleniyor...");
+                
+                const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', id);
+                
+                unsubscribeGameRef.current = onSnapshot(gameRef, (docSnap) => {
+                    if (!docSnap.exists()) return;
+                    const data = docSnap.data();
+                    
+                    // Kim kimdir belirle
+                    const isP1 = data.player1.userId === user.uid;
+                    const myProf = isP1 ? data.player1.profile : data.player2.profile;
+                    const oppProf = isP1 ? data.player2.profile : data.player1.profile;
+                    
+                    setOpponentProfile(oppProf);
+                    
+                    // Eşleşme hesapla
+                    const matchData = calculateMatch(myProf, oppProf);
+                    setMatchLevel(matchData.level);
+                    setSharedCategories(matchData.shared);
+                    
+                    if (data.messages) setMessages(data.messages);
+
+                    // Ekranı değiştir
+                    if (gameState === GAME_STATES.SEARCHING || gameState === GAME_STATES.LOBBY) {
+                        log("Eşleşme tamamlandı, sohbet başlıyor.");
+                        setGameState(GAME_STATES.MATCH_FOUND);
+                        setTimeout(() => setGameState(GAME_STATES.CHAT), 3000);
+                    }
+                }, (err) => {
+                    log("Game Listener Error: " + err.message);
+                });
+            };
+
             const calculateMatch = (p1Profile, p2Profile) => {
+                if(!p1Profile || !p2Profile) return { level: MATCH_LEVELS[0], shared: [], score: 0 };
+                
                 let score = 0;
                 const shared = [];
                 QUESTIONS.forEach(q => {
@@ -261,43 +346,18 @@
                 return { level, shared, score };
             };
 
-            const startGameListener = (id) => {
-                if (!user) return;
-                const gameRef = doc(db, 'artifacts', appId, 'public', 'data', 'games', id);
-                
-                unsubscribeGameRef.current = onSnapshot(gameRef, (docSnap) => {
-                    if (!docSnap.exists()) return;
-                    const data = docSnap.data();
-                    const isP1 = data.player1.userId === user.uid;
-                    const myProf = isP1 ? data.player1.profile : data.player2.profile;
-                    const oppProf = isP1 ? data.player2.profile : data.player1.profile;
-                    
-                    setOpponentProfile(oppProf);
-                    const matchData = calculateMatch(myProf, oppProf);
-                    setMatchLevel(matchData.level);
-                    setSharedCategories(matchData.shared);
-                    
-                    if (data.messages) setMessages(data.messages);
-
-                    if (gameState === GAME_STATES.SEARCHING || gameState === GAME_STATES.LOBBY) {
-                        setGameState(GAME_STATES.MATCH_FOUND);
-                        setTimeout(() => setGameState(GAME_STATES.CHAT), 3000);
-                    }
-                });
-            };
-
             const sendMessage = async () => {
                 if (!inputText.trim() || questionsLeft <= 0 || !gameId) return;
 
-                const forbiddenWords = Object.values(userProfile).map(v => v.toLowerCase());
+                const forbiddenWords = Object.values(userProfile).map(v => String(v).toLowerCase());
                 const inputLower = inputText.toLowerCase();
                 const hasForbidden = forbiddenWords.some(word => inputLower.includes(word));
 
                 if (hasForbidden) {
-                    setSystemMessage("UYARI: Yasaklı kelime tespit edildi! Mesajın iletilmedi ama soru hakkın yandı.");
+                    setSystemMessage("UYARI: Yasaklı kelime! Mesaj gitmedi, hak yandı.");
                     setQuestionsLeft(prev => prev - 1);
                     setInputText("");
-                    setTimeout(() => setSystemMessage(null), 4000);
+                    setTimeout(() => setSystemMessage(null), 3000);
                     return;
                 }
 
@@ -307,11 +367,16 @@
                     timestamp: Date.now() 
                 };
 
-                const gameRef = doc(db, 'artifacts', appId, 'public', 'data', 'games', gameId);
-                const updatedMessages = [...messages, newMessage];
-                await updateDoc(gameRef, { messages: updatedMessages });
-                setInputText("");
-                setQuestionsLeft(prev => prev - 1);
+                const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', gameId);
+                try {
+                    // Array'in tamamını okuyup yazıyoruz (basitlik için)
+                    const updatedMessages = [...messages, newMessage];
+                    await updateDoc(gameRef, { messages: updatedMessages });
+                    setInputText("");
+                    setQuestionsLeft(prev => prev - 1);
+                } catch (e) {
+                    log("Mesaj gönderme hatası: " + e.message);
+                }
             };
 
             // --- EKRANLAR ---
@@ -319,7 +384,7 @@
                 <div className="max-w-4xl mx-auto p-6 pb-20 animate-fade-in">
                     <div className="text-center mb-8">
                         <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-2">Ruh Eşi Algoritması</h1>
-                        <p className="text-gray-400">Profilini oluştur, kaderindeki kişiyle (veya tam zıttınla) eşleş.</p>
+                        <p className="text-gray-400">Profilini oluştur, kaderindeki kişiyle eşleş.</p>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {QUESTIONS.map((q) => (
@@ -350,9 +415,18 @@
             const renderLobbyScreen = () => (
                 <div className="flex flex-col items-center justify-center h-[80vh] animate-fade-in relative">
                     <div className="absolute top-4 right-4 bg-gray-800 px-4 py-2 rounded-full flex items-center gap-2 border border-gray-700">
-                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                        <div className={`w-2 h-2 rounded-full ${onlineCount > 0 ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
                         <span className="text-gray-300 text-sm font-medium">{onlineCount} Kişi Online</span>
                     </div>
+                    
+                    {/* HATA MESAJI GÖSTERGESİ */}
+                    {systemMessage && (
+                         <div className="absolute top-20 bg-red-900/80 text-white px-6 py-3 rounded-lg border border-red-500 shadow-xl z-50 animate-bounce text-center max-w-md">
+                             <Icon name="alert-circle" className="inline mr-2"/> 
+                             {systemMessage}
+                         </div>
+                    )}
+
                     <h2 className="text-4xl font-black text-white mb-16 tracking-tight">KADER ANI</h2>
                     <div className="relative group cursor-pointer" onClick={startMatchmaking}>
                         <div className="absolute -inset-4 bg-red-500/20 rounded-full blur-xl group-hover:bg-red-500/40 transition-all duration-500 animate-pulse"></div>
@@ -364,7 +438,12 @@
                             </div>
                         </div>
                     </div>
-                    <p className="mt-16 text-gray-500 text-center max-w-md text-sm font-medium tracking-wide uppercase">Butona bastığında online bir kullanıcıyla eşleşeceksin.</p>
+                    <p className="mt-16 text-gray-500 text-center max-w-md text-sm font-medium tracking-wide uppercase">Butona bas ve bekle. Eğer online kimse yoksa, ilk gelen kişiyle eşleşeceksin.</p>
+                    
+                    {/* Debug Log (Geliştirici için) - İsterseniz kaldırabilirsiniz */}
+                    {/* <div className="fixed bottom-0 left-0 w-full h-24 bg-black/80 text-green-400 text-xs p-2 overflow-y-auto font-mono z-50 pointer-events-none opacity-50">
+                        {debugLog}
+                    </div> */}
                 </div>
             );
 
@@ -375,7 +454,11 @@
                         <div className="absolute inset-2 border-b-4 border-violet-500 rounded-full animate-spin reverse"></div>
                     </div>
                     <h3 className="mt-8 text-2xl font-bold text-white">Eşleşme Aranıyor...</h3>
-                    <p className="mt-2 text-gray-500 text-sm">Kuyruktaki diğer kişiler bekleniyor.</p>
+                    <p className="mt-2 text-gray-500 text-sm text-center max-w-xs">
+                        Kuyrukta bekleyenler kontrol ediliyor.<br/>
+                        Kimse yoksa bekleme listesine alınacaksın.
+                    </p>
+                    <button onClick={() => { setGameState(GAME_STATES.LOBBY); setSystemMessage(null); }} className="mt-8 px-6 py-2 bg-gray-800 rounded-full text-sm hover:bg-gray-700 border border-gray-700">İptal Et</button>
                 </div>
             );
 
