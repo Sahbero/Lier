@@ -146,19 +146,24 @@
             useEffect(() => {
                 if (!user) return;
                 const presenceRef = doc(db, 'artifacts', appId, 'public', 'data', 'presence', user.uid);
-                const updatePresence = () => setDoc(presenceRef, { lastSeen: serverTimestamp() });
+                const updatePresence = () => setDoc(presenceRef, { lastSeen: serverTimestamp() }).catch(e => console.error("Presence update error:", e));
                 
                 updatePresence();
                 const interval = setInterval(updatePresence, 30000);
 
-                const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'presence'), orderBy('lastSeen', 'desc'));
-                const unsubPresence = onSnapshot(q, (snapshot) => {
+                // DÜZELTME: orderBy kaldırıldı (Index hatasını önlemek için)
+                const presenceColl = collection(db, 'artifacts', appId, 'public', 'data', 'presence');
+                const unsubPresence = onSnapshot(presenceColl, (snapshot) => {
                     const now = new Date();
                     const activeUsers = snapshot.docs.filter(doc => {
                         const data = doc.data();
-                        return data.lastSeen && (now - data.lastSeen.toDate()) < 120000;
+                        // lastSeen null kontrolü (serverTimestamp yazılırken kısa süre null olabilir)
+                        if (!data.lastSeen) return false;
+                        return (now - data.lastSeen.toDate()) < 120000; // 2 dakika
                     });
                     setOnlineCount(activeUsers.length);
+                }, (error) => {
+                    console.error("Online count error:", error);
                 });
 
                 return () => {
@@ -184,16 +189,19 @@
                 const queueRef = collection(db, 'artifacts', appId, 'public', 'data', 'matchmaking_queue');
                 
                 try {
-                    const q = query(queueRef, limit(1));
-                    const snapshot = await getDocs(q);
+                    // DÜZELTME: limit(1) kaldırıldı ve basit getDocs kullanıldı
+                    const snapshot = await getDocs(queueRef);
                     
-                    if (!snapshot.empty) {
-                        const waitingUserDoc = snapshot.docs[0];
+                    // Kendimiz olmayan ilk kişiyi bulalım
+                    const waitingUserDoc = snapshot.docs.find(doc => doc.data().userId !== user.uid);
+                    
+                    if (waitingUserDoc) {
                         const waitingUserData = waitingUserDoc.data();
 
-                        if (waitingUserData.userId === user.uid) return;
+                        // Eşleşme bulundu, kuyruktan silelim
                         await deleteDoc(waitingUserDoc.ref);
 
+                        // Oyun oluşturalım
                         const newGameRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'games'), {
                             player1: waitingUserData,
                             player2: { userId: user.uid, profile: userProfile },
@@ -206,28 +214,33 @@
                         startGameListener(newGameRef.id);
 
                     } else {
+                        // Kuyrukta kimse yok, kendimizi ekleyelim
                         const myQueueRef = await addDoc(queueRef, {
                             userId: user.uid,
                             profile: userProfile,
                             createdAt: serverTimestamp()
                         });
 
+                        // DÜZELTME: Çoklu where sorgusu kaldırıldı, sadece userId ile dinleyip filtreliyoruz
                         const gamesRef = collection(db, 'artifacts', appId, 'public', 'data', 'games');
-                        const myGameQuery = query(gamesRef, where('player1.userId', '==', user.uid), where('status', '==', 'active'), limit(1));
+                        const myGameQuery = query(gamesRef, where('player1.userId', '==', user.uid));
                         
                         const unsub = onSnapshot(myGameQuery, (snap) => {
-                            if (!snap.empty) {
-                                const gameDoc = snap.docs[0];
-                                deleteDoc(myQueueRef).catch(() => {});
-                                setGameId(gameDoc.id);
+                            // Aktif ve yeni oluşturulmuş (bana ait) bir oyun var mı?
+                            const foundGame = snap.docs.find(doc => doc.data().status === 'active');
+                            
+                            if (foundGame) {
+                                // Biri beni buldu!
+                                deleteDoc(myQueueRef).catch(() => {}); // Kuyruğu temizle
+                                setGameId(foundGame.id);
                                 unsub(); 
-                                startGameListener(gameDoc.id);
+                                startGameListener(foundGame.id);
                             }
                         });
                     }
                 } catch (error) {
                     console.error("Matchmaking error:", error);
-                    setSystemMessage("Eşleşme sırasında bir hata oluştu.");
+                    setSystemMessage("Eşleşme sırasında bir hata oluştu: " + error.message);
                     setGameState(GAME_STATES.LOBBY);
                 }
             };
@@ -547,4 +560,5 @@
     </script>
 </body>
 </html>
+
 
