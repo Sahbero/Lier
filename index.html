@@ -31,8 +31,8 @@
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
         import { 
-            getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, getDoc,
-            query, where, getDocs, deleteDoc, setDoc, serverTimestamp 
+            getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, getDoc, setDoc,
+            query, where, getDocs, deleteDoc, serverTimestamp, orderBy 
         } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
         // ==================================================================
@@ -57,7 +57,7 @@
             console.error("Firebase başlatma hatası:", e);
         }
         
-        const APP_ID = "mystery-connection-v3"; 
+        const APP_ID = "mystery-connection-v4"; // Versiyon güncellendi
 
         // --- IKON BİLEŞENİ ---
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -83,15 +83,16 @@
             CHAT: 'CHAT',
             GUESS_LEVEL: 'GUESS_LEVEL',
             GUESS_CRITERIA: 'GUESS_CRITERIA',
-            RESULT: 'RESULT'
+            RESULT: 'RESULT',
+            INBOX: 'INBOX' // Yeni state
         };
 
         const MATCH_LEVELS = [
-            { id: 0, minScore: 0, maxScore: 0, label: "Farklı Dünyaların İnsanı", color: "text-gray-500", desc: "Hiçbir ortak noktanız yok." },
-            { id: 1, minScore: 1, maxScore: 1, label: "Tesadüfi Benzerlik", color: "text-blue-400", desc: "Sadece tek bir noktada buluştunuz." },
-            { id: 2, minScore: 2, maxScore: 2, label: "Ortak Frekans", color: "text-green-400", desc: "Benzer zevklere sahipsiniz." },
-            { id: 3, minScore: 3, maxScore: 3, label: "Güçlü Bağ", color: "text-purple-400", desc: "Birçok konuda hemfikirsiniz." },
-            { id: 4, minScore: 4, maxScore: 12, label: "Ruh Eşi", color: "text-pink-500", desc: "İnanılmaz! Neredeyse aynısınız." }
+            { id: 0, label: "Farklı Dünyaların İnsanı", color: "text-gray-500", limit: 0, desc: "Hiçbir ortak nokta yok." },
+            { id: 1, label: "Tesadüfi Benzerlik", color: "text-blue-400", limit: 1, desc: "Sadece 1 ortak nokta." },
+            { id: 2, label: "Ortak Frekans", color: "text-green-400", limit: 2, desc: "Birkaç ortak nokta." },
+            { id: 3, label: "Güçlü Bağ", color: "text-purple-400", limit: 3, desc: "Birçok ortak nokta." },
+            { id: 4, label: "Ruh Eşi", color: "text-pink-500", limit: 99, desc: "Neredeyse aynısınız!" }
         ];
 
         const QUESTIONS = [
@@ -131,17 +132,33 @@
             
             const [guessedLevel, setGuessedLevel] = useState(null);
             const [guesses, setGuesses] = useState({});
+            const [score, setScore] = useState(0);
+            const [inboxGames, setInboxGames] = useState([]);
+            const [isUnlimitedChat, setIsUnlimitedChat] = useState(false); // Post-game chat flag
+
             const chatEndRef = useRef(null);
 
-            // 1. AUTHENTICATION
+            // 1. AUTHENTICATION & PROFILE LOADING
             useEffect(() => {
                 if (!auth) return;
                 signInAnonymously(auth).catch(err => setAuthError({ title: "Giriş Hatası", msg: err.message }));
-                const unsubscribe = onAuthStateChanged(auth, (u) => { if (u) setUser(u); });
+                
+                const unsubscribe = onAuthStateChanged(auth, async (u) => { 
+                    if (u) {
+                        setUser(u);
+                        // Profili çek
+                        const docRef = doc(db, 'artifacts', APP_ID, 'users', u.uid);
+                        const docSnap = await getDoc(docRef);
+                        if (docSnap.exists()) {
+                            setUserProfile(docSnap.data());
+                            setGameState(GAME_STATES.LOBBY);
+                        }
+                    }
+                });
                 return () => unsubscribe();
             }, []);
 
-            // 2. ONLINE SAYISI
+            // 2. ONLINE PRESENCE
             useEffect(() => {
                 if (!user) return;
                 const updatePresence = () => {
@@ -160,28 +177,46 @@
 
             useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-            const handleInputChange = (id, value) => setUserProfile(prev => ({ ...prev, [id]: value }));
+            // 3. INBOX LISTENER
+            useEffect(() => {
+                if (!user || gameState !== GAME_STATES.LOBBY) return;
+                
+                // Basit sorgu: player1 veya player2 ben olan ve durumu 'shared' olan oyunlar
+                // Firestore compound query limitation nedeniyle iki ayrı listener gerekebilir veya client-side filter.
+                // Basitlik için tüm oyunları çekip client'ta filtreleyelim (demo amaçlı)
+                // Gerçekte: 'notifications' subcollection kullanılmalı.
+                const gamesRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'games');
+                const q = query(gamesRef, orderBy('createdAt', 'desc')); // Son oyunlar
+                
+                const unsubInbox = onSnapshot(q, (snapshot) => {
+                    const myGames = snapshot.docs
+                        .map(d => ({ id: d.id, ...d.data() }))
+                        .filter(g => (g.player1.userId === user.uid || g.player2.userId === user.uid) && g.status === 'shared');
+                    setInboxGames(myGames);
+                });
+                return () => unsubInbox();
+            }, [user, gameState]);
+
+
+            // --- OYUN FONKSİYONLARI ---
+
+            const saveProfile = async () => {
+                if (!user) return;
+                await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid), userProfile);
+                setGameState(GAME_STATES.LOBBY);
+            };
+
             const isProfileComplete = userProfile.name && userProfile.age && QUESTIONS.every(q => userProfile[q.id] && userProfile[q.id].trim() !== "");
 
-            // 3. MATCHMAKING (Benzersiz Maç Bileti Eklendi)
             const startMatchmaking = async () => {
                 if (!user) return;
-
-                // Eski verileri sıfırla
-                setMessages([]);
-                setGameId(null);
-                setCurrentTurn(null);
-                setOpponentProfile({});
-                setGuesses({});
-                setGuessedLevel(null);
+                // Reset
+                setMessages([]); setGameId(null); setCurrentTurn(null); setOpponentProfile({}); setGuesses({}); setGuessedLevel(null); setScore(0); setIsUnlimitedChat(false);
 
                 setGameState(GAME_STATES.SEARCHING);
                 setSystemMessage(null);
 
-                // BU OYUN İÇİN BENZERSİZ BİR BİLET OLUŞTUR
-                // Bu, sadece bu arama seansına ait oyunları kabul etmemizi sağlar.
                 const myMatchToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-
                 const queueRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'matchmaking_queue');
                 const gamesRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'games');
 
@@ -190,18 +225,15 @@
                     const opponentDoc = snapshot.docs.find(doc => doc.data().userId !== user.uid);
 
                     if (opponentDoc) {
-                        // --- EŞLEŞME KURAN (GUEST) ---
                         const opponentData = opponentDoc.data();
                         try {
                             await deleteDoc(opponentDoc.ref);
-                            
                             const starter = Math.random() < 0.5 ? user.uid : opponentData.userId;
-
                             const newGameRef = await addDoc(gamesRef, {
                                 player1: opponentData,
                                 player2: { userId: user.uid, profile: userProfile },
                                 status: 'active',
-                                matchToken: opponentData.matchToken, // RAKİBİN BİLETİNİ KULLAN
+                                matchToken: opponentData.matchToken,
                                 currentTurn: starter,
                                 createdAt: serverTimestamp(),
                                 messages: []
@@ -210,25 +242,13 @@
                             startGameListener(newGameRef.id);
                         } catch (e) { setTimeout(startMatchmaking, 500); }
                     } else {
-                        // --- BEKLEYEN (HOST) ---
-                        // Eski kuyruk kayıtlarını sil
                         const myOldEntries = snapshot.docs.filter(doc => doc.data().userId === user.uid);
                         myOldEntries.forEach(d => deleteDoc(d.ref));
-
                         const myQueueRef = await addDoc(queueRef, { 
-                            userId: user.uid, 
-                            profile: userProfile, 
-                            createdAt: serverTimestamp(),
-                            matchToken: myMatchToken // BİLETİMİ KUYRUĞA KOYUYORUM
+                            userId: user.uid, profile: userProfile, createdAt: serverTimestamp(), matchToken: myMatchToken 
                         });
-
-                        // Sadece benim biletimi taşıyan yeni oyunu bekle
                         const unsubGameWait = onSnapshot(gamesRef, (gameSnap) => {
-                            const myGame = gameSnap.docs.find(d => {
-                                const data = d.data();
-                                // Hem active olacak hem de benim şu anki biletimle eşleşecek
-                                return data.matchToken === myMatchToken && data.status === 'active';
-                            });
+                            const myGame = gameSnap.docs.find(d => d.data().matchToken === myMatchToken && d.data().status === 'active');
                             if (myGame) {
                                 deleteDoc(myQueueRef).catch(() => {}); 
                                 setGameId(myGame.id);
@@ -264,12 +284,18 @@
                     
                     if (data.messages) setMessages(data.messages);
 
+                    // Shared (Inbox) modundaysak chat açık kalır
+                    if (data.status === 'shared') {
+                        setIsUnlimitedChat(true);
+                    }
+
                     setGameState(prevState => {
                         if (prevState === GAME_STATES.SEARCHING || prevState === GAME_STATES.LOBBY) {
-                            setTimeout(() => setGameState(GAME_STATES.CHAT), 3000);
+                            setTimeout(() => setGameState(GAME_STATES.CHAT), 2000);
                             return GAME_STATES.MATCH_FOUND;
                         }
-                        if (prevState === GAME_STATES.CHAT && data.messages && data.messages.length >= 6) {
+                        // Normal oyun modu kısıtlaması (6 mesaj)
+                        if (!isUnlimitedChat && data.status === 'active' && prevState === GAME_STATES.CHAT && data.messages && data.messages.length >= 6) {
                              return GAME_STATES.GUESS_LEVEL;
                         }
                         return prevState;
@@ -282,22 +308,27 @@
                 let score = 0;
                 const shared = [];
                 QUESTIONS.forEach(q => {
-                    const val1 = p1Profile[q.id]?.toLowerCase().trim();
-                    const val2 = p2Profile[q.id]?.toLowerCase().trim();
-                    if (val1 && val2 && val1 === val2) {
+                    if (p1Profile[q.id]?.toLowerCase().trim() === p2Profile[q.id]?.toLowerCase().trim()) {
                         score++;
                         shared.push(q.id);
                     }
                 });
-                let level = MATCH_LEVELS.find(l => score >= l.minScore && score <= l.maxScore);
-                if (!level && score > 4) level = MATCH_LEVELS[4]; 
+                let level = MATCH_LEVELS.find(l => score === l.limit) || (score > 3 ? MATCH_LEVELS[4] : MATCH_LEVELS[0]);
+                // Düzeltme: Match levels dizisindeki 'limit' sadece tanım için, gerçek score aralığı:
+                // 0 -> Level 0, 1 -> Level 1, 2 -> Level 2, 3 -> Level 3, 4+ -> Level 4
+                if (score === 0) level = MATCH_LEVELS[0];
+                else if (score === 1) level = MATCH_LEVELS[1];
+                else if (score === 2) level = MATCH_LEVELS[2];
+                else if (score === 3) level = MATCH_LEVELS[3];
+                else level = MATCH_LEVELS[4];
+
                 return { level, shared, score };
             };
 
             const sendMessage = async () => {
                 if (!inputText.trim() || !gameId) return;
                 
-                if (currentTurn !== user.uid) {
+                if (!isUnlimitedChat && currentTurn !== user.uid) {
                     setSystemMessage("Sıra henüz sende değil!");
                     setTimeout(() => setSystemMessage(null), 2000);
                     return;
@@ -307,76 +338,123 @@
                 const inputLower = inputText.toLowerCase();
                 const hasForbidden = forbiddenWords.some(word => word.length > 2 && inputLower.includes(word));
 
-                const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', gameId);
-                
-                if (hasForbidden) {
-                    setSystemMessage("Yasaklı kelime kullandın! (İsim, yaş veya özellikler)");
+                if (!isUnlimitedChat && hasForbidden) {
+                    setSystemMessage("Yasaklı kelime kullandın!");
                     setInputText("");
-                    setTimeout(() => setSystemMessage(null), 3000);
+                    setTimeout(() => setSystemMessage(null), 2000);
                     return; 
                 }
                 
+                const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', gameId);
                 try {
                     const gameSnapDirect = await getDoc(gameRef);
-                    if (!gameSnapDirect.exists()) return;
-                    
                     const gData = gameSnapDirect.data();
                     const nextTurn = gData.player1.userId === user.uid ? gData.player2.userId : gData.player1.userId;
-                    const currentMessages = gData.messages || [];
                     const newMessage = { senderId: user.uid, text: inputText, timestamp: Date.now() };
 
                     await updateDoc(gameRef, { 
-                        messages: [...currentMessages, newMessage],
+                        messages: [...(gData.messages || []), newMessage],
                         currentTurn: nextTurn 
                     });
-                    
                     setInputText("");
-                } catch (e) {
-                    console.error("Mesaj gönderme hatası:", e);
-                    setSystemMessage("Mesaj gönderilemedi. Lütfen tekrar dene.");
-                }
+                } catch (e) {}
             };
 
-            // --- COMPONENTS ---
+            const handleGuessToggle = (catId) => {
+                // KISITLAMA MANTIĞI
+                const limit = guessedLevel ? guessedLevel.limit : 0;
+                const currentCount = Object.values(guesses).filter(Boolean).length;
+                const isSelecting = !guesses[catId];
+
+                if (isSelecting && currentCount >= limit && limit !== 99) {
+                    setSystemMessage(`Seçtiğin seviyeye göre en fazla ${limit} özellik seçebilirsin!`);
+                    setTimeout(() => setSystemMessage(null), 2000);
+                    return;
+                }
+                setGuesses(prev => ({ ...prev, [catId]: !prev[catId] }));
+            };
+
+            const finalizeScore = () => {
+                let finalScore = 0;
+                const correctLevel = guessedLevel.id === matchLevel.id;
+                
+                // 1. Seviye Puanı
+                if (correctLevel) {
+                    finalScore += 50;
+                    if (matchLevel.id === 0) finalScore = 100; // Ayrı dünyalar bonusu
+                }
+
+                // 2. Özellik Puanı
+                if (matchLevel.id !== 0) {
+                    let correctAttrs = 0;
+                    let wrongAttrs = 0;
+                    Object.keys(guesses).forEach(key => {
+                        if (guesses[key]) {
+                            if (sharedCategories.includes(key)) correctAttrs++;
+                            else wrongAttrs++;
+                        }
+                    });
+                    
+                    finalScore += (correctAttrs * 10);
+                    finalScore -= (wrongAttrs * 5);
+                }
+
+                if (finalScore < 0) finalScore = 0;
+                setScore(finalScore);
+                setGameState(GAME_STATES.RESULT);
+            };
+
+            const shareResults = async () => {
+                if (!gameId) return;
+                const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', gameId);
+                await updateDoc(gameRef, { status: 'shared' });
+                setSystemMessage("Sonuçlar gönderildi! Gelen kutusundan konuşmaya devam edebilirsiniz.");
+                setTimeout(() => {
+                    setSystemMessage(null);
+                    setGameState(GAME_STATES.LOBBY);
+                }, 2000);
+            };
+
+            const openInboxGame = (game) => {
+                setGameId(game.id);
+                setIsUnlimitedChat(true); // Sınırsız mod
+                startGameListener(game.id);
+                setGameState(GAME_STATES.RESULT); // Sonuç ekranından başlat
+            };
+
+            // --- RENDERLAR ---
+
             const renderProfileScreen = () => (
                 <div className="max-w-4xl mx-auto p-6 pb-20 animate-fade-in">
                     <div className="text-center mb-8">
-                        <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-2">Ruh Eşi Algoritması</h1>
-                        <p className="text-gray-400">Profilini doldur, ismini gizlemeden oyna.</p>
+                        <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-2">Profil Oluştur</h1>
                     </div>
-
                     <div className="bg-gray-800/80 p-6 rounded-xl border border-gray-700 mb-6 flex flex-col md:flex-row gap-4">
                         <div className="flex-1">
-                            <label className="block text-sm font-medium text-gray-400 mb-1">İsminiz (Oyunda Görünecek)</label>
-                            <input type="text" value={userProfile.name} onChange={(e) => handleInputChange('name', e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 outline-none transition-all" placeholder="Örn: Ahmet" />
+                            <label className="text-gray-400 text-sm">İsim</label>
+                            <input type="text" value={userProfile.name} onChange={(e) => setUserProfile(p => ({...p, name: e.target.value}))} className="w-full bg-gray-900 border border-gray-700 rounded p-2 outline-none" />
                         </div>
-                        <div className="w-full md:w-32">
-                            <label className="block text-sm font-medium text-gray-400 mb-1">Yaşınız</label>
-                            <input type="number" value={userProfile.age} onChange={(e) => handleInputChange('age', e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 focus:border-pink-500 outline-none transition-all" placeholder="24" />
+                        <div className="w-32">
+                            <label className="text-gray-400 text-sm">Yaş</label>
+                            <input type="number" value={userProfile.age} onChange={(e) => setUserProfile(p => ({...p, age: e.target.value}))} className="w-full bg-gray-900 border border-gray-700 rounded p-2 outline-none" />
                         </div>
                     </div>
-                    
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {QUESTIONS.map((q) => (
-                            <div key={q.id} className="bg-gray-800/50 p-4 rounded-xl border border-gray-700 hover:border-pink-500/50 transition-all group">
-                                <label className="flex items-center gap-2 text-gray-200 font-medium mb-3 group-hover:text-pink-400 transition-colors">
-                                    <span className="text-pink-500"><Icon name={q.iconName} size={18} /></span>
-                                    {q.label}
-                                </label>
-                                <div className="flex flex-wrap gap-2 mb-3">
-                                    {q.options.slice(0, 4).map((opt) => (
-                                        <button key={opt} onClick={() => handleInputChange(q.id, opt)} className={`px-2 py-1 text-xs rounded-md transition-all ${userProfile[q.id] === opt ? 'bg-pink-600 text-white shadow-lg shadow-pink-500/25' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
-                                            {opt}
-                                        </button>
+                            <div key={q.id} className="bg-gray-800/50 p-4 rounded-xl border border-gray-700">
+                                <label className="flex items-center gap-2 text-pink-500 mb-2"><Icon name={q.iconName} size={18} /> {q.label}</label>
+                                <div className="flex flex-wrap gap-2 mb-2">
+                                    {q.options.slice(0,4).map(opt => (
+                                        <button key={opt} onClick={() => setUserProfile(p => ({...p, [q.id]: opt}))} className={`px-2 py-1 text-xs rounded ${userProfile[q.id] === opt ? 'bg-pink-600 text-white' : 'bg-gray-700 text-gray-300'}`}>{opt}</button>
                                     ))}
                                 </div>
-                                <input type="text" placeholder="Veya özel cevabın..." value={userProfile[q.id] || ''} onChange={(e) => handleInputChange(q.id, e.target.value)} className="w-full bg-gray-900 border border-gray-700 text-white text-sm rounded-lg focus:ring-pink-500 focus:border-pink-500 block p-2.5 placeholder-gray-600 transition-colors" />
+                                <input type="text" placeholder="Özel cevap..." value={userProfile[q.id] || ''} onChange={(e) => setUserProfile(p => ({...p, [q.id]: e.target.value}))} className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm outline-none" />
                             </div>
                         ))}
                     </div>
                     <div className="mt-8 flex justify-center pb-10">
-                        <button disabled={!isProfileComplete || !user} onClick={() => setGameState(GAME_STATES.LOBBY)} className={`px-12 py-4 rounded-full font-bold text-lg transition-all transform ${isProfileComplete && user ? 'bg-gradient-to-r from-pink-600 to-violet-600 text-white hover:scale-105 hover:shadow-xl shadow-purple-500/20' : 'bg-gray-800 text-gray-600 cursor-not-allowed border border-gray-700'}`}>
-                            {!user ? "Bağlanılıyor..." : isProfileComplete ? "Lobiye Giriş Yap" : "Eksik Alanları Doldur"}
+                        <button disabled={!isProfileComplete} onClick={saveProfile} className="px-12 py-4 bg-pink-600 rounded-full font-bold text-white hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed">
+                            Kaydet ve Devam Et
                         </button>
                     </div>
                 </div>
@@ -384,12 +462,24 @@
 
             const renderLobbyScreen = () => (
                 <div className="flex flex-col items-center justify-center h-[80vh] animate-fade-in relative">
-                    <div className="absolute top-4 right-4 bg-gray-800 px-4 py-2 rounded-full flex items-center gap-2 border border-gray-700">
-                        <div className={`w-2 h-2 rounded-full ${onlineCount > 0 ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
-                        <span className="text-gray-300 text-sm font-medium">{onlineCount} Kişi Online</span>
+                    {/* ÜST BAR: INBOX & EDIT */}
+                    <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center">
+                        <button onClick={() => setGameState(GAME_STATES.INBOX)} className="relative bg-gray-800 p-3 rounded-full hover:bg-gray-700 transition-colors border border-gray-600">
+                            <Icon name="mail" size={24} className="text-white" />
+                            {inboxGames.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-xs w-5 h-5 flex items-center justify-center rounded-full">{inboxGames.length}</span>}
+                        </button>
+                        <div className="flex items-center gap-2 bg-gray-800 px-4 py-2 rounded-full border border-gray-700">
+                            <div className={`w-2 h-2 rounded-full ${onlineCount > 0 ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
+                            <span className="text-gray-300 text-sm">{onlineCount} Online</span>
+                        </div>
+                        <button onClick={() => setGameState(GAME_STATES.PROFILE)} className="bg-gray-800 p-3 rounded-full hover:bg-gray-700 transition-colors border border-gray-600">
+                            <Icon name="edit-3" size={24} className="text-white" />
+                        </button>
                     </div>
-                    {systemMessage && <div className="absolute top-20 bg-red-900/80 text-white px-6 py-3 rounded-lg border border-red-500 shadow-xl z-50 animate-bounce text-center max-w-md"><Icon name="alert-circle" className="inline mr-2"/> {systemMessage}</div>}
-                    <h2 className="text-4xl font-black text-white mb-16 tracking-tight">KADER ANI</h2>
+
+                    {systemMessage && <div className="absolute top-20 bg-green-600 text-white px-6 py-3 rounded-lg shadow-xl z-50 animate-bounce">{systemMessage}</div>}
+
+                    <h2 className="text-5xl font-black text-white mb-16 tracking-tight drop-shadow-lg">KADER ANI</h2>
                     <div className="relative group cursor-pointer" onClick={startMatchmaking}>
                         <div className="absolute -inset-4 bg-red-500/20 rounded-full blur-xl group-hover:bg-red-500/40 transition-all duration-500 animate-pulse"></div>
                         <div className="relative w-48 h-48 bg-gradient-to-tr from-red-600 to-red-500 rounded-full flex items-center justify-center shadow-[0_0_50px_-10px_rgba(220,38,38,0.5)] transition-transform duration-200 active:scale-95 group-hover:shadow-[0_0_70px_-10px_rgba(220,38,38,0.7)]">
@@ -400,33 +490,34 @@
                             </div>
                         </div>
                     </div>
-                    <p className="mt-16 text-gray-500 text-center max-w-md text-sm font-medium tracking-wide uppercase">Butona bas ve bekle. Online kimse yoksa, ilk gelen kişiyle eşleşeceksin.</p>
+                    <p className="mt-16 text-gray-500 text-center max-w-md text-sm font-medium uppercase">Butona bas, anlık olarak online olan birini bul.</p>
                 </div>
             );
 
-            const renderSearchingScreen = () => (
-                <div className="flex flex-col items-center justify-center h-[80vh]">
-                    <div className="relative w-24 h-24">
-                        <div className="absolute inset-0 border-t-4 border-pink-500 rounded-full animate-spin"></div>
-                        <div className="absolute inset-2 border-b-4 border-violet-500 rounded-full animate-spin reverse"></div>
+            const renderInboxScreen = () => (
+                <div className="max-w-2xl mx-auto p-6 h-[80vh]">
+                    <div className="flex items-center gap-4 mb-8">
+                        <button onClick={() => setGameState(GAME_STATES.LOBBY)} className="p-2 bg-gray-800 rounded-full"><Icon name="arrow-left" /></button>
+                        <h2 className="text-3xl font-bold">Gelen Kutusu</h2>
                     </div>
-                    <h3 className="mt-8 text-2xl font-bold text-white">Eşleşme Aranıyor...</h3>
-                    <button onClick={() => { setGameState(GAME_STATES.LOBBY); setSystemMessage(null); }} className="mt-8 px-6 py-2 bg-gray-800 rounded-full text-sm hover:bg-gray-700 border border-gray-700">İptal Et</button>
-                </div>
-            );
-
-            const renderMatchFoundScreen = () => (
-                <div className="flex flex-col items-center justify-center h-[80vh] animate-bounce-in">
-                    <div className="bg-gradient-to-br from-green-500 to-emerald-700 p-6 rounded-full mb-6 shadow-2xl shadow-green-500/30">
-                        <Icon name="check" size={64} className="text-white" />
-                    </div>
-                    <h2 className="text-4xl font-bold text-white mb-2">Bağlantı Kuruldu!</h2>
-                    <div className="bg-gray-800/80 p-6 rounded-xl border border-gray-700 mt-6 text-center backdrop-blur-sm max-w-md">
-                        <div className="flex flex-col items-center gap-2">
-                            <Icon name="lock" className="text-pink-500" size={32} />
-                            <h3 className="text-2xl font-black text-white mb-2">Seviye Gizlendi</h3>
-                            <p className="text-gray-300 text-sm">Sırayla konuşma başladı. Herkesin 3 mesaj hakkı var.</p>
-                        </div>
+                    <div className="space-y-4 overflow-y-auto h-full pb-20">
+                        {inboxGames.length === 0 ? <p className="text-gray-500 text-center">Henüz mesaj yok.</p> : 
+                        inboxGames.map(g => {
+                            const isP1 = g.player1.userId === user.uid;
+                            const partner = isP1 ? g.player2.profile : g.player1.profile;
+                            return (
+                                <div key={g.id} onClick={() => openInboxGame(g)} className="bg-gray-800 p-4 rounded-xl border border-gray-700 flex justify-between items-center cursor-pointer hover:border-pink-500 transition-colors">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center"><Icon name="user" /></div>
+                                        <div>
+                                            <h4 className="font-bold text-white">{partner.name} ({partner.age})</h4>
+                                            <p className="text-xs text-gray-400">Sonuçlar paylaşıldı</p>
+                                        </div>
+                                    </div>
+                                    <Icon name="chevron-right" className="text-gray-500" />
+                                </div>
+                            )
+                        })}
                     </div>
                 </div>
             );
@@ -440,34 +531,30 @@
                     <div className="h-[85vh] flex flex-col max-w-3xl mx-auto">
                         <div className="bg-gray-800 p-4 rounded-t-xl border-b border-gray-700 flex justify-between items-center">
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                                <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg">
                                     <Icon name="user" size={20} className="text-white" />
                                 </div>
                                 <div>
-                                    <h3 className="font-bold text-white">{opponentProfile.name || "İsimsiz"} <span className="text-xs font-normal text-gray-400">({opponentProfile.age || "?"})</span></h3>
-                                    <span className="text-xs text-gray-400 flex items-center gap-1"><Icon name="lock" size={10} /> Bağ Seviyesi Gizli</span>
+                                    <h3 className="font-bold text-white">{opponentProfile.name} ({opponentProfile.age})</h3>
+                                    {!isUnlimitedChat && <span className="text-xs text-gray-400 flex items-center gap-1"><Icon name="lock" size={10} /> Bağ Seviyesi Gizli</span>}
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2 bg-gray-900 px-3 py-1 rounded-full border border-gray-700">
-                                <Icon name="message-circle" size={14} className={remainingRights === 0 ? "text-red-500" : "text-pink-500"} />
-                                <span className="text-sm font-bold text-gray-300">Hak: {remainingRights}/3</span>
-                            </div>
-                        </div>
-                        <div className="flex-1 bg-gray-900/50 overflow-y-auto p-4 space-y-4 scrollbar-thin relative">
-                            {systemMessage && (
-                                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-600/90 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-xl z-50 animate-bounce">
-                                    <Icon name="alert-circle" size={16} className="inline mr-2"/> {systemMessage}
+                            {!isUnlimitedChat && (
+                                <div className="flex items-center gap-2 bg-gray-900 px-3 py-1 rounded-full border border-gray-700">
+                                    <Icon name="message-circle" size={14} className="text-pink-500" />
+                                    <span className="text-sm font-bold text-gray-300">Hak: {remainingRights}/3</span>
                                 </div>
                             )}
-                            <div className="text-center my-4">
-                                <span className="bg-gray-800 text-gray-400 text-xs px-3 py-1 rounded-full border border-gray-700">Sohbet Başladı - Yasaklı kelimeleri kullanma!</span>
-                            </div>
+                        </div>
+                        
+                        <div className="flex-1 bg-gray-900/50 overflow-y-auto p-4 space-y-4 scrollbar-thin relative">
+                            {systemMessage && <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-600/90 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-xl z-50 animate-bounce">{systemMessage}</div>}
+                            
                             {messages.map((msg, idx) => {
                                 const isMe = msg.senderId === user.uid;
                                 return (
                                     <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                         <div className={`max-w-[80%] p-3 rounded-2xl ${isMe ? 'bg-pink-600 text-white rounded-tr-none' : 'bg-gray-700 text-gray-200 rounded-tl-none'}`}>
-                                            <div className="text-xs opacity-70 mb-1">{isMe ? "Sen" : opponentProfile.name}</div>
                                             {msg.text}
                                         </div>
                                     </div>
@@ -475,32 +562,17 @@
                             })}
                             <div ref={chatEndRef} />
                         </div>
-                        <div className="p-4 bg-gray-800 rounded-b-xl border-t border-gray-700">
-                             {/* SIRA GÖSTERGESİ */}
-                            <div className="mb-2 text-center">
-                                {isMyTurn ? (
-                                    <span className="text-green-400 text-xs font-bold animate-pulse">● Sıra Sende! Mesajını yaz.</span>
-                                ) : (
-                                    <span className="text-gray-500 text-xs font-bold">○ {opponentProfile.name} yazıyor... Bekle.</span>
-                                )}
-                            </div>
 
+                        <div className="p-4 bg-gray-800 rounded-b-xl border-t border-gray-700">
+                            {!isUnlimitedChat && (
+                                <div className="mb-2 text-center">
+                                    {isMyTurn ? <span className="text-green-400 text-xs font-bold animate-pulse">● Sıra Sende!</span> : <span className="text-gray-500 text-xs font-bold">○ Karşı taraf yazıyor...</span>}
+                                </div>
+                            )}
                             <div className="flex gap-2">
-                                <input 
-                                    type="text" 
-                                    disabled={!isMyTurn}
-                                    value={inputText} 
-                                    onChange={(e) => setInputText(e.target.value)} 
-                                    onKeyDown={(e) => e.key === 'Enter' && sendMessage()} 
-                                    placeholder={isMyTurn ? "Mesajını yaz..." : "Sıranı bekle..."}
-                                    className={`flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none transition-colors placeholder-gray-600 ${!isMyTurn && 'opacity-50 cursor-not-allowed'}`} 
-                                />
-                                <button 
-                                    disabled={!isMyTurn}
-                                    onClick={sendMessage} 
-                                    className={`bg-pink-600 text-white px-4 rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-pink-600/20 ${!isMyTurn ? 'opacity-50 cursor-not-allowed' : 'hover:bg-pink-700'}`}
-                                >
-                                    <Icon name="send" size={20} />
+                                <input type="text" disabled={!isUnlimitedChat && !isMyTurn} value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Mesajını yaz..." className={`flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white outline-none ${!isUnlimitedChat && !isMyTurn && 'opacity-50'}`} />
+                                <button disabled={!isUnlimitedChat && !isMyTurn} onClick={sendMessage} className={`bg-blue-600 hover:bg-blue-700 text-white px-6 rounded-lg font-bold flex items-center gap-2 transition-all ${!isUnlimitedChat && !isMyTurn && 'opacity-50 cursor-not-allowed'}`}>
+                                    <span>Gönder</span> <Icon name="send" size={18} />
                                 </button>
                             </div>
                         </div>
@@ -511,12 +583,12 @@
             const renderGuessLevelScreen = () => (
                 <div className="max-w-2xl mx-auto p-6 text-center h-[80vh] flex flex-col justify-center">
                     <h2 className="text-3xl font-bold text-white mb-6">Süre Doldu!</h2>
-                    <p className="text-gray-400 mb-10 text-lg">Konuşmalarınıza dayanarak, {opponentProfile.name} ile aranızdaki uyum nedir?</p>
+                    <p className="text-gray-400 mb-10 text-lg">Sence aranızdaki bağ seviyesi nedir?</p>
                     <div className="space-y-3 max-w-md mx-auto w-full">
                         {MATCH_LEVELS.map((level) => (
-                            <button key={level.id} onClick={() => { setGuessedLevel(level); setGameState(GAME_STATES.GUESS_CRITERIA); }} className="w-full bg-gray-800/80 hover:bg-gray-700 border border-gray-700 hover:border-pink-500 p-4 rounded-xl transition-all flex items-center justify-between group backdrop-blur-sm">
+                            <button key={level.id} onClick={() => { setGuessedLevel(level); setGameState(GAME_STATES.GUESS_CRITERIA); }} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 p-4 rounded-xl flex justify-between items-center group">
                                 <span className={`text-lg font-bold ${level.color}`}>{level.label}</span>
-                                <span className="text-gray-500 text-sm opacity-0 group-hover:opacity-100 transition-opacity">Seç &rarr;</span>
+                                <span className="text-gray-500 text-xs">Seç &rarr;</span>
                             </button>
                         ))}
                     </div>
@@ -525,117 +597,105 @@
 
             const renderGuessCriteriaScreen = () => (
                 <div className="max-w-4xl mx-auto p-6 pb-20">
-                    <h2 className="text-3xl font-bold text-center text-white mb-2">Neden "{guessedLevel?.label}"?</h2>
-                    <p className="text-center text-gray-400 mb-8">Hangi konularda ortak olduğunuzu düşünüyorsun?</p>
+                    <h2 className="text-3xl font-bold text-center text-white mb-2">Kanıtın Ne?</h2>
+                    <p className="text-center text-gray-400 mb-4">
+                        "{guessedLevel.label}" için 
+                        {guessedLevel.limit === 99 ? <span className="text-green-400 font-bold ml-1">SINIRSIZ</span> : <span className="text-pink-500 font-bold ml-1">{guessedLevel.limit} ADET</span>} 
+                        ortak özellik seçebilirsin.
+                    </p>
+                    {systemMessage && <div className="text-center text-red-500 font-bold mb-4">{systemMessage}</div>}
+                    
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">
                         {QUESTIONS.map((q) => (
-                            <button key={q.id} onClick={() => setGuesses(prev => ({ ...prev, [q.id]: !prev[q.id] }))} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${guesses[q.id] ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-gray-800 border-gray-700 text-gray-500 hover:border-gray-600'}`}>
+                            <button key={q.id} onClick={() => handleGuessToggle(q.id)} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${guesses[q.id] ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-gray-800 border-gray-700 text-gray-500 hover:border-gray-600'}`}>
                                 <Icon name={q.iconName} size={18} />
                                 <span className="text-xs font-medium text-center">{q.label.split('?')[0]}</span>
                             </button>
                         ))}
                     </div>
                     <div className="flex justify-center">
-                        <button onClick={() => setGameState(GAME_STATES.RESULT)} className="bg-gradient-to-r from-pink-600 to-violet-600 px-12 py-4 rounded-full text-white font-bold text-xl shadow-lg shadow-pink-500/25 hover:scale-105 transition-transform">Gerçeği Gör</button>
+                        <button onClick={finalizeScore} className="bg-gradient-to-r from-pink-600 to-violet-600 px-12 py-4 rounded-full text-white font-bold text-xl hover:scale-105 transition-transform">Sonuçları Gör</button>
                     </div>
                 </div>
             );
 
             const renderResultScreen = () => {
-                if (!matchLevel) return <div>Veriler yükleniyor...</div>;
                 const correctGuesses = Object.keys(guesses).filter(id => guesses[id] && sharedCategories.includes(id)).length;
-                const totalShared = sharedCategories.length;
-                const successRate = totalShared > 0 ? Math.round((correctGuesses / totalShared) * 100) : (Object.keys(guesses).length === 0 ? 100 : 0);
                 const levelGuessCorrect = guessedLevel?.id === matchLevel?.id;
 
                 return (
                     <div className="max-w-4xl mx-auto p-6 pb-20">
                         <div className="text-center mb-8">
                             <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-2">YÜZLEŞME</h2>
-                            
-                            {/* BAŞARI KARNESİ */}
                             <div className="bg-gray-800 inline-flex items-center gap-4 px-6 py-3 rounded-full border border-gray-700 shadow-xl mt-4">
                                 <div className="text-right">
-                                    <div className="text-xs text-gray-400 uppercase tracking-wider">Dedektiflik Puanın</div>
-                                    <div className="text-2xl font-bold text-white">% {successRate}</div>
+                                    <div className="text-xs text-gray-400 uppercase tracking-wider">Toplam Puan</div>
+                                    <div className="text-3xl font-black text-white">{score}</div>
                                 </div>
-                                <div className={`w-12 h-12 rounded-full flex items-center justify-center border-4 ${successRate > 70 ? 'border-green-500 text-green-500' : successRate > 40 ? 'border-yellow-500 text-yellow-500' : 'border-red-500 text-red-500'}`}>
-                                    <Icon name={successRate > 70 ? "trophy" : "target"} size={20} />
-                                </div>
+                                <Icon name="trophy" size={32} className="text-yellow-500" />
                             </div>
                         </div>
 
                         <div className="flex flex-col md:flex-row justify-center gap-6 mt-8 items-center mb-10">
                             <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 min-w-[200px] text-center">
-                                <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Hissiyatın</p>
+                                <p className="text-gray-500 text-xs uppercase">Tahminin</p>
                                 <p className={`text-xl font-bold ${guessedLevel?.color}`}>{guessedLevel?.label}</p>
                             </div>
-                            {levelGuessCorrect ? (
-                                <div className="bg-green-500 text-white p-3 rounded-full shadow-lg animate-bounce"><Icon name="check" size={24} /></div>
-                            ) : (
-                                <div className="text-gray-700 font-mono">VS</div>
-                            )}
+                            {levelGuessCorrect ? <Icon name="check-circle" size={32} className="text-green-500" /> : <span className="text-gray-600">VS</span>}
                             <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 min-w-[200px] text-center relative overflow-hidden">
                                 <div className="absolute top-0 right-0 bg-pink-600 text-white text-[10px] px-2 py-1 rounded-bl">GERÇEK</div>
-                                <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Algoritma</p>
+                                <p className="text-gray-500 text-xs uppercase">Algoritma</p>
                                 <p className={`text-xl font-bold ${matchLevel.color}`}>{matchLevel.label}</p>
                             </div>
                         </div>
 
-                        <div className="grid md:grid-cols-2 gap-6">
-                            <div className="bg-gray-800/50 rounded-2xl p-6 border border-gray-700">
-                                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Icon name="user" size={18}/> {userProfile.name}</h3>
-                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin">
-                                    {QUESTIONS.map(q => (
-                                        <div key={q.id} className={`flex justify-between text-sm p-2 rounded-lg ${sharedCategories.includes(q.id) ? 'bg-green-500/10 border border-green-500/20' : 'bg-gray-900/30'}`}>
-                                            <span className={sharedCategories.includes(q.id) ? 'text-green-400' : 'text-gray-500'}>{q.label.split('?')[0]}</span>
-                                            <span className="font-medium text-white">{userProfile[q.id]}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="bg-gray-800/50 rounded-2xl p-6 border border-gray-700 relative">
-                                <div className="absolute -top-3 -right-3 bg-violet-600 text-white text-xs px-3 py-1 rounded-full shadow-lg">Partner</div>
-                                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Icon name="ghost" size={18}/> {opponentProfile.name}</h3>
-                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin">
-                                    {QUESTIONS.map(q => (
-                                        <div key={q.id} className={`flex justify-between text-sm p-2 rounded-lg ${sharedCategories.includes(q.id) ? 'bg-green-500/10 border border-green-500/20' : 'bg-gray-900/30'}`}>
-                                            <span className={sharedCategories.includes(q.id) ? 'text-green-400' : 'text-gray-500'}>{opponentProfile[q.id]}</span>
-                                        </div>
-                                    ))}
-                                </div>
+                        {/* ORTAK NOKTALAR (Sadece sonuç ekranında görünür) */}
+                        <div className="bg-gray-900/50 p-4 rounded-xl border border-gray-800 mb-8 text-center">
+                            <h4 className="text-gray-400 text-sm mb-3">Ortak Noktalarınız</h4>
+                            <div className="flex flex-wrap justify-center gap-2">
+                                {sharedCategories.length > 0 ? sharedCategories.map(catId => {
+                                    const q = QUESTIONS.find(q => q.id === catId);
+                                    return <span key={catId} className="bg-green-900 text-green-200 px-3 py-1 rounded-full text-xs border border-green-700">{q.label.split('?')[0]}: {userProfile[catId]}</span>
+                                }) : <span className="text-gray-500 text-sm">Hiç ortak noktanız yok.</span>}
                             </div>
                         </div>
-                        <div className="mt-8 flex justify-center">
-                            <button 
-                                onClick={() => { 
-                                    setGameState(GAME_STATES.LOBBY); 
-                                    setGameId(null); 
-                                    setMessages([]); 
-                                    setQuestionsLeft(3); 
-                                    setCurrentTurn(null); 
-                                }} 
-                                className="bg-white text-black px-8 py-3 rounded-full font-bold text-lg hover:bg-gray-200 transition-all shadow-lg hover:scale-105"
-                            >
-                                Yeni Bir Şans Dene
+
+                        <div className="flex flex-col gap-4 justify-center items-center mt-8">
+                            {/* SONUCU PARTNERE GÖNDER */}
+                            {!isUnlimitedChat && (
+                                <button onClick={shareResults} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-full font-bold flex items-center gap-2 shadow-lg">
+                                    <Icon name="send" size={20} /> Sonuçları Partnere Gönder
+                                </button>
+                            )}
+                            
+                            {/* SOHBETE DEVAM ET (Eğer inbox'tan gelindiyse veya paylaşıldıysa) */}
+                            {isUnlimitedChat && (
+                                <button onClick={() => setGameState(GAME_STATES.CHAT)} className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-full font-bold flex items-center gap-2 shadow-lg">
+                                    <Icon name="message-circle" size={20} /> Sohbete Devam Et
+                                </button>
+                            )}
+
+                            <button onClick={() => { setGameState(GAME_STATES.LOBBY); setGameId(null); setMessages([]); setQuestionsLeft(3); setCurrentTurn(null); }} className="text-gray-400 hover:text-white underline decoration-pink-500 underline-offset-4">
+                                Lobiye Dön
                             </button>
                         </div>
                     </div>
                 );
             };
 
-            return (
-                <div className="relative z-10 container mx-auto px-4 py-4">
-                    {gameState === GAME_STATES.PROFILE && renderProfileScreen()}
-                    {gameState === GAME_STATES.LOBBY && renderLobbyScreen()}
-                    {gameState === GAME_STATES.SEARCHING && renderSearchingScreen()}
-                    {gameState === GAME_STATES.MATCH_FOUND && renderMatchFoundScreen()}
-                    {gameState === GAME_STATES.CHAT && renderChatScreen()}
-                    {gameState === GAME_STATES.GUESS_LEVEL && renderGuessLevelScreen()}
-                    {gameState === GAME_STATES.GUESS_CRITERIA && renderGuessCriteriaScreen()}
-                    {gameState === GAME_STATES.RESULT && renderResultScreen()}
-                </div>
-            );
+            // RENDER SWITCH
+            switch(gameState) {
+                case GAME_STATES.PROFILE: return renderProfileScreen();
+                case GAME_STATES.LOBBY: return renderLobbyScreen();
+                case GAME_STATES.SEARCHING: return renderSearchingScreen();
+                case GAME_STATES.MATCH_FOUND: return renderMatchFoundScreen();
+                case GAME_STATES.CHAT: return renderChatScreen();
+                case GAME_STATES.GUESS_LEVEL: return renderGuessLevelScreen();
+                case GAME_STATES.GUESS_CRITERIA: return renderGuessCriteriaScreen();
+                case GAME_STATES.RESULT: return renderResultScreen();
+                case GAME_STATES.INBOX: return renderInboxScreen();
+                default: return renderLobbyScreen();
+            }
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
