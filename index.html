@@ -5,20 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gizemli Bağ - Ruh Eşi Algoritması</title>
     
-    <!-- Kütüphaneler -->
+    <!-- Tasarım Kütüphanesi -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- React -->
+    
+    <!-- React Kütüphaneleri -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-    <!-- Babel -->
+    
+    <!-- JSX Derleyicisi -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <!-- Lucide İkonları (En Kararlı Sürüm) -->
-    <script src="https://unpkg.com/lucide@0.263.1"></script>
+    
+    <!-- FIREBASE (Compat Sürümü - Siyah Ekranı Önler) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
     
     <style>
         @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
         .animate-fade-in { animation: fade-in 0.5s ease-out; }
-        @keyframes bounce-in { 0% { transform: scale(0.3); opacity: 0; } 50% { transform: scale(1.05); opacity: 1; } 70% { transform: scale(0.9); } 100% { transform: scale(1); opacity: 1; } }
+        
+        @keyframes bounce-in { 
+            0% { transform: scale(0.3); opacity: 0; } 
+            50% { transform: scale(1.05); opacity: 1; } 
+            70% { transform: scale(0.9); } 
+            100% { transform: scale(1); opacity: 1; } 
+        }
         .animate-bounce-in { animation: bounce-in 0.6s cubic-bezier(0.215, 0.610, 0.355, 1.000); }
         
         .scrollbar-thin::-webkit-scrollbar { width: 6px; }
@@ -40,15 +51,7 @@
 
     <div id="root"></div>
 
-    <script type="text/babel" data-type="module">
-        // --- FIREBASE IMPORTS ---
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
-        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, deleteUser } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
-        import { 
-            getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, getDoc, setDoc,
-            query, where, getDocs, deleteDoc, serverTimestamp, orderBy 
-        } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
-
+    <script type="text/babel">
         // ==================================================================
         // FIREBASE AYARLARI (KENDİ BİLGİLERİNİZLE DOLDURUN)
         // ==================================================================
@@ -62,78 +65,80 @@
             measurementId: "G-FLFVH8Z4R9"
         };
 
-        // Firebase Başlatma
-        let app, auth, db;
-        try {
-            app = initializeApp(firebaseConfig);
-            auth = getAuth(app);
-            db = getFirestore(app);
-        } catch (e) {
-            console.error("Firebase Hatası:", e);
+        // Firebase Başlatma (Compat)
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
         }
+        const auth = firebase.auth();
+        const db = firebase.firestore();
         
-        const APP_ID = "mystery-connection-v10"; 
+        const APP_ID = "mystery-connection-v12"; // Temiz başlangıç
 
         // ==================================================================
-        // 🎵 MÜZİK AYARLARI 🎵
+        // 🎵 MÜZİK URL 🎵
         // ==================================================================
-        const BACKGROUND_MUSIC_URL = "Inner Stillness.mp3"; // Örnek Müzik (Kendi linkini buraya koy)
+        const BACKGROUND_MUSIC_URL = "Inner Stillness.mp3"; 
         
-        // Global Audio Nesnesi (React render'ından etkilenmemesi için dışarıda)
+        // Global Audio Nesnesi
         const bgAudio = new Audio(BACKGROUND_MUSIC_URL);
         bgAudio.loop = true;
         // ==================================================================
 
 
-        // --- GÜÇLENDİRİLMİŞ IKON BİLEŞENİ ---
+        // --- SVG İKON VERİLERİ (GARANTİ GÖRÜNÜM) ---
+        const ICONS_DATA = {
+            'mail': <g><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></g>,
+            'settings': <g><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></g>,
+            'edit-3': <g><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></g>,
+            'log-out': <g><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></g>,
+            'user': <g><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></g>,
+            'lock': <g><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></g>,
+            'message-circle': <g><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></g>,
+            'send': <g><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></g>,
+            'check': <g><polyline points="20 6 9 17 4 12"/></g>,
+            'trophy': <g><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17"/><path d="M14 14.66V17"/><path d="M18 22l-.5-10"/><path d="M6 22l.5-10"/><path d="M9 22a2 2 0 0 1-2-2 4 4 0 0 1 4-4h2a4 4 0 0 1 4 4 2 2 0 0 1-2 2"/></g>,
+            'check-circle': <g><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></g>,
+            'arrow-left': <g><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></g>,
+            'trash-2': <g><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></g>,
+            'user-check': <g><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><polyline points="17 11 19 13 23 9"/></g>,
+            'music': <g><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></g>,
+            'x': <g><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></g>,
+            'zap': <g><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></g>,
+            'heart': <g><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></g>,
+            'ghost': <g><path d="M9 22l1.5-1.5L12 22l1.5-1.5L15 22l1.5-1.5L18 22V7a6 6 0 0 0-6-6 6 6 0 0 0-6 6v15z"/></g>,
+            'frown': <g><circle cx="12" cy="12" r="10"/><path d="M16 16s-1.5-2-4-2-4 2-4 2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></g>,
+            'smile': <g><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></g>,
+            'star': <g><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></g>,
+            'film': <g><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="17" x2="22" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/></g>,
+            'book': <g><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></g>,
+            'coffee': <g><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></g>,
+            'sparkles': <g><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M9 17v4"/><path d="M3 5h4"/></g>,
+            'alert-circle': <g><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></g>,
+            'chevron-right': <g><polyline points="9 18 15 12 9 6"/></g>,
+            'pen-tool': <g><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/><circle cx="11" cy="11" r="2"/></g>
+        };
+
         const Icon = ({ name, size = 24, className = "" }) => {
-            const iconRef = React.useRef(null);
-
-            React.useEffect(() => {
-                if (window.lucide && iconRef.current) {
-                    // Eski ikonu temizle
-                    iconRef.current.innerHTML = '';
-                    
-                    // Yeni ikon elementi oluştur
-                    const iconElement = document.createElement('i');
-                    iconElement.setAttribute('data-lucide', name);
-                    
-                    // Classları ekle
-                    if (className) {
-                        className.split(' ').forEach(cls => iconElement.classList.add(cls));
-                    }
-                    
-                    iconRef.current.appendChild(iconElement);
-                    
-                    // Lucide render tetikle
-                    window.lucide.createIcons({
-                        root: iconRef.current,
-                        attrs: {
-                            width: size,
-                            height: size,
-                            strokeWidth: 2
-                        }
-                    });
-                }
-            }, [name, size, className]);
-
-            return <span ref={iconRef} className="inline-flex items-center justify-center"></span>;
+            return (
+                <svg 
+                    xmlns="http://www.w3.org/2000/svg" 
+                    width={size} 
+                    height={size} 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    strokeWidth="2" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    className={className}
+                >
+                    {ICONS_DATA[name] || null}
+                </svg>
+            );
         };
 
-        // --- OYUN SABİTLERİ ---
-        const GAME_STATES = {
-            AUTH: 'AUTH',
-            PROFILE: 'PROFILE',
-            LOBBY: 'LOBBY',
-            SEARCHING: 'SEARCHING',
-            MATCH_FOUND: 'MATCH_FOUND',
-            CHAT: 'CHAT',
-            GUESS_LEVEL: 'GUESS_LEVEL',
-            GUESS_CRITERIA: 'GUESS_CRITERIA',
-            RESULT: 'RESULT',
-            INBOX: 'INBOX'
-        };
-
+        // --- SABİTLER ---
+        const GAME_STATES = { AUTH: 'AUTH', PROFILE: 'PROFILE', LOBBY: 'LOBBY', SEARCHING: 'SEARCHING', MATCH_FOUND: 'MATCH_FOUND', CHAT: 'CHAT', GUESS_LEVEL: 'GUESS_LEVEL', GUESS_CRITERIA: 'GUESS_CRITERIA', RESULT: 'RESULT', INBOX: 'INBOX' };
         const MATCH_LEVELS = [
             { id: 0, label: "Farklı Dünyalar", color: "text-gray-500", limit: 0 },
             { id: 1, label: "Tesadüfi Benzerlik", color: "text-blue-400", limit: 1 },
@@ -141,7 +146,6 @@
             { id: 3, label: "Güçlü Bağ", color: "text-purple-400", limit: 3 },
             { id: 4, label: "Ruh Eşi", color: "text-pink-500", limit: 99 }
         ];
-
         const QUESTIONS = [
             { id: 'color', label: 'En sevdiğin renk?', iconName: 'zap', options: ['Mavi', 'Kırmızı', 'Siyah', 'Yeşil', 'Sarı', 'Mor', 'Turuncu', 'Beyaz'] },
             { id: 'food', label: 'En sevdiğin yemek?', iconName: 'heart', options: ['Pizza', 'Burger', 'Sushi', 'Kebap', 'Makarna', 'Salata', 'Tatlı', 'Mantı'] },
@@ -159,122 +163,78 @@
 
         function MysteryConnectionGame() {
             const { useState, useEffect, useRef } = React;
-            
-            // User & Game State
             const [user, setUser] = useState(null);
             const [gameState, setGameState] = useState(GAME_STATES.AUTH);
-            
-            // Data States
             const [userProfile, setUserProfile] = useState({ name: '', age: '' });
             const [opponentProfile, setOpponentProfile] = useState({});
             const [matchLevel, setMatchLevel] = useState(null);
             const [sharedCategories, setSharedCategories] = useState([]);
-            
-            // Auth & Settings
             const [authMode, setAuthMode] = useState('LOGIN');
             const [authCreds, setAuthCreds] = useState({ username: '', password: '' });
             const [authLoading, setAuthLoading] = useState(false);
             const [showSettings, setShowSettings] = useState(false);
             const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
             const [volume, setVolume] = useState(0.5);
-
-            // Game Logic States
             const [gameId, setGameId] = useState(null);
             const [currentTurn, setCurrentTurn] = useState(null);
             const [onlineCount, setOnlineCount] = useState(0);
             const unsubscribeGameRef = useRef(null);
-
             const [messages, setMessages] = useState([]);
             const [inputText, setInputText] = useState("");
             const [systemMessage, setSystemMessage] = useState(null);
-            
             const [guessedLevel, setGuessedLevel] = useState(null);
             const [guesses, setGuesses] = useState({});
             const [score, setScore] = useState(0);
             const [inboxGames, setInboxGames] = useState([]);
             const [isUnlimitedChat, setIsUnlimitedChat] = useState(false);
-
             const chatEndRef = useRef(null);
 
-            // --- MÜZİK SES AYARI ---
+            // --- MÜZİK YÖNETİMİ ---
             useEffect(() => {
                 bgAudio.volume = volume;
-                // Kullanıcı etkileşimi sonrası çalmaya başla
-                const playAudio = () => {
-                    if (bgAudio.paused) {
-                        bgAudio.play().catch(e => console.log("Audio play prevented:", e));
-                    }
-                };
+                const playAudio = () => { if (bgAudio.paused) bgAudio.play().catch(() => {}); };
                 document.addEventListener('click', playAudio, { once: true });
                 return () => document.removeEventListener('click', playAudio);
-            }, [volume]);
+            }, []);
+            useEffect(() => { bgAudio.volume = volume; }, [volume]);
 
-            // --- AUTHENTICATION ---
+            // --- AUTH & DATA ---
             useEffect(() => {
-                if (!auth) return;
-                const unsubscribe = onAuthStateChanged(auth, async (u) => { 
+                auth.onAuthStateChanged(async (u) => { 
                     if (u) {
                         setUser(u);
-                        const docRef = doc(db, 'artifacts', APP_ID, 'users', u.uid, 'data', 'profile');
-                        const docSnap = await getDoc(docRef);
-                        if (docSnap.exists()) {
-                            setUserProfile(docSnap.data());
-                            setGameState(GAME_STATES.LOBBY);
-                        } else {
-                            setGameState(GAME_STATES.PROFILE);
-                        }
-                    } else {
-                        setUser(null);
-                        setGameState(GAME_STATES.AUTH);
-                    }
+                        const docRef = db.collection('artifacts').doc(APP_ID).collection('users').doc(u.uid).collection('data').doc('profile');
+                        const docSnap = await docRef.get();
+                        if (docSnap.exists) { setUserProfile(docSnap.data()); setGameState(GAME_STATES.LOBBY); } else { setGameState(GAME_STATES.PROFILE); }
+                    } else { setUser(null); setGameState(GAME_STATES.AUTH); }
                 });
-                return () => unsubscribe();
             }, []);
 
-            // --- ONLINE PRESENCE ---
             useEffect(() => {
                 if (!user) return;
-                const presenceRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'presence', user.uid);
-                setDoc(presenceRef, { lastSeen: serverTimestamp(), userId: user.uid }, { merge: true }).catch(() => {});
+                const presenceRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('presence').doc(user.uid);
+                presenceRef.set({ lastSeen: firebase.firestore.FieldValue.serverTimestamp(), userId: user.uid }, { merge: true });
+                const interval = setInterval(() => presenceRef.set({ lastSeen: firebase.firestore.FieldValue.serverTimestamp(), userId: user.uid }, { merge: true }), 30000);
                 
-                const interval = setInterval(() => {
-                    setDoc(presenceRef, { lastSeen: serverTimestamp(), userId: user.uid }, { merge: true }).catch(() => {});
-                }, 30000);
-
-                const presenceColl = collection(db, 'artifacts', APP_ID, 'public', 'data', 'presence');
-                const unsubPresence = onSnapshot(presenceColl, (snapshot) => {
+                const unsub = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('presence').onSnapshot((snap) => {
                     const now = new Date();
-                    setOnlineCount(snapshot.docs.filter(d => {
-                        const data = d.data();
-                        // Null check ve timestamp check
-                        if(!data.lastSeen) return true; 
-                        return (now - data.lastSeen.toDate()) < 120000;
-                    }).length);
+                    setOnlineCount(snap.docs.filter(d => { const dt = d.data(); return dt.lastSeen && (now - dt.lastSeen.toDate()) < 120000; }).length);
                 });
-                return () => { clearInterval(interval); unsubPresence(); };
+                return () => { clearInterval(interval); unsub(); };
             }, [user]);
 
             useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-            // --- INBOX LISTENER ---
             useEffect(() => {
                 if (!user || gameState === GAME_STATES.AUTH) return;
-                const gamesRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'games');
-                const q = query(gamesRef); 
-                const unsubInbox = onSnapshot(q, (snapshot) => {
-                    const myGames = snapshot.docs
-                        .map(d => ({ id: d.id, ...d.data() }))
+                const unsub = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('games').onSnapshot((snap) => {
+                    const myGames = snap.docs.map(d => ({ id: d.id, ...d.data() }))
                         .filter(g => (g.player1.userId === user.uid || g.player2.userId === user.uid) && g.status === 'shared')
-                        .sort((a, b) => {
-                            const ta = a.createdAt?.seconds || 0;
-                            const tb = b.createdAt?.seconds || 0;
-                            return tb - ta;
-                        });
+                        .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
                     setInboxGames(myGames);
                 });
-                return () => unsubInbox();
+                return () => unsub();
             }, [user, gameState]);
-
 
             // --- FONKSİYONLAR ---
             const handleAuth = async () => {
@@ -283,201 +243,131 @@
                 const email = `${authCreds.username.toLowerCase()}@gizemlibag.com`;
                 try {
                     if (authMode === 'REGISTER') {
-                        const usernameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'usernames', authCreds.username.toLowerCase());
-                        const usernameSnap = await getDoc(usernameRef);
-                        if (usernameSnap.exists()) throw new Error("USERNAME_TAKEN");
-                        const userCredential = await createUserWithEmailAndPassword(auth, email, authCreds.password);
-                        const uid = userCredential.user.uid;
-                        await setDoc(usernameRef, { uid: uid });
-                        await setDoc(doc(db, 'artifacts', APP_ID, 'users', uid, 'data', 'profile'), { username: authCreds.username, name: authCreds.username, age: '' });
-                    } else {
-                        await signInWithEmailAndPassword(auth, email, authCreds.password);
-                    }
-                } catch (error) {
-                    let msg = "Bir hata oluştu.";
-                    if (error.message === "USERNAME_TAKEN") msg = "Bu kullanıcı adı alınmış.";
-                    else if (error.code === 'auth/operation-not-allowed') msg = "Email/Password girişi kapalı!";
-                    else msg = error.message;
+                        const uRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('usernames').doc(authCreds.username.toLowerCase());
+                        const s = await uRef.get();
+                        if (s.exists) throw new Error("USERNAME_TAKEN");
+                        const uc = await auth.createUserWithEmailAndPassword(email, authCreds.password);
+                        await uRef.set({ uid: uc.user.uid });
+                        await db.collection('artifacts').doc(APP_ID).collection('users').doc(uc.user.uid).collection('data').doc('profile').set({ username: authCreds.username, name: authCreds.username, age: '' });
+                    } else { await auth.signInWithEmailAndPassword(email, authCreds.password); }
+                } catch (e) {
+                    let msg = "Hata oluştu.";
+                    if (e.message === "USERNAME_TAKEN") msg = "Kullanıcı adı alınmış.";
+                    else if (e.code === 'auth/operation-not-allowed') msg = "Firebase Email/Pass girişi kapalı!";
+                    else if (e.code?.includes('invalid-credential')) msg = "Hatalı giriş.";
                     setSystemMessage(msg);
                 } finally { setAuthLoading(false); }
             };
 
-            const handleLogout = async () => {
-                await signOut(auth);
-                setGameState(GAME_STATES.AUTH);
-                setShowSettings(false);
-            };
-
+            const handleLogout = async () => { await auth.signOut(); setGameState(GAME_STATES.AUTH); setShowSettings(false); };
             const handleDeleteAccount = async () => {
                 try {
-                    await deleteDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'data', 'profile'));
-                    if (userProfile.username) {
-                        await deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'usernames', userProfile.username.toLowerCase()));
-                    }
-                    await deleteUser(user);
-                    setGameState(GAME_STATES.AUTH);
-                    setShowSettings(false);
-                    setShowDeleteConfirm(false);
-                } catch (error) {
-                    setSystemMessage("Hesap silinirken hata oluştu.");
-                }
+                    await db.collection('artifacts').doc(APP_ID).collection('users').doc(user.uid).collection('data').doc('profile').delete();
+                    if (userProfile.username) await db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('usernames').doc(userProfile.username.toLowerCase()).delete();
+                    await user.delete(); setGameState(GAME_STATES.AUTH); setShowSettings(false); setShowDeleteConfirm(false);
+                } catch (e) { setSystemMessage("Hesap silme hatası."); }
             };
-
-            const saveProfile = async () => {
-                if (!user) return;
-                await setDoc(doc(db, 'artifacts', APP_ID, 'users', user.uid, 'data', 'profile'), userProfile, { merge: true });
-                setGameState(GAME_STATES.LOBBY);
-                setShowSettings(false);
+            const saveProfile = async () => { 
+                await db.collection('artifacts').doc(APP_ID).collection('users').doc(user.uid).collection('data').doc('profile').set(userProfile, { merge: true }); 
+                setGameState(GAME_STATES.LOBBY); setShowSettings(false); 
             };
-
             const isProfileComplete = userProfile.name && userProfile.age && QUESTIONS.every(q => userProfile[q.id] && userProfile[q.id].trim() !== "");
 
-            // --- DÜZELTİLMİŞ MATCHMAKING ---
             const startMatchmaking = async () => {
                 if (!user) return;
-                // Reset
                 setMessages([]); setGameId(null); setCurrentTurn(null); setOpponentProfile({}); setGuesses({}); setGuessedLevel(null); setScore(0); setIsUnlimitedChat(false);
                 setGameState(GAME_STATES.SEARCHING); setSystemMessage(null);
-
-                const myMatchToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
-                const queueRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'matchmaking_queue');
-                const gamesRef = collection(db, 'artifacts', APP_ID, 'public', 'data', 'games');
-
+                const myToken = Math.random().toString(36).substring(2) + Date.now().toString(36);
+                const qRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('matchmaking_queue');
+                const gRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('games');
                 try {
-                    const snapshot = await getDocs(queueRef);
+                    const snap = await qRef.get();
                     const now = Date.now();
-
-                    // Temizlik
-                    snapshot.docs.forEach(doc => {
-                        const data = doc.data();
-                        // Timestamp check, null ise pass
-                        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().getTime() : 0;
-                        if (createdAt > 0 && (now - createdAt > 120000)) { 
-                            deleteDoc(doc.ref).catch(() => {}); 
-                        }
-                    });
-
-                    // Rakip Bul
-                    const opponentDoc = snapshot.docs.find(doc => {
-                        const data = doc.data();
-                        if (data.userId === user.uid) return false;
-                        const createdAt = data.createdAt?.toDate ? data.createdAt.toDate().getTime() : now;
-                        // 45 saniye kuralı
-                        return (now - createdAt) < 45000; 
-                    });
-
-                    if (opponentDoc) {
-                        // JOIN
-                        const opponentData = opponentDoc.data();
+                    snap.docs.forEach(d => { const dt = d.data(); const ct = dt.createdAt?.toDate ? dt.createdAt.toDate().getTime() : 0; if (ct > 0 && (now - ct > 120000)) d.ref.delete().catch(()=>{}); });
+                    const oppDoc = snap.docs.find(d => { const dt = d.data(); if (dt.userId === user.uid) return false; const ct = dt.createdAt?.toDate ? dt.createdAt.toDate().getTime() : now; return (now - ct) < 45000; });
+                    if (oppDoc) {
+                        const oppData = oppDoc.data();
                         try {
-                            await deleteDoc(opponentDoc.ref);
-                            const starter = Math.random() < 0.5 ? user.uid : opponentData.userId;
-                            const newGameRef = await addDoc(gamesRef, {
-                                player1: opponentData,
-                                player2: { userId: user.uid, profile: userProfile },
-                                status: 'active', matchToken: opponentData.matchToken, currentTurn: starter, createdAt: serverTimestamp(), messages: []
-                            });
-                            setGameId(newGameRef.id); startGameListener(newGameRef.id);
+                            await oppDoc.ref.delete();
+                            const starter = Math.random() < 0.5 ? user.uid : oppData.userId;
+                            const newGame = await gRef.add({ player1: oppData, player2: { userId: user.uid, profile: userProfile }, status: 'active', matchToken: oppData.matchToken, currentTurn: starter, createdAt: firebase.firestore.FieldValue.serverTimestamp(), messages: [] });
+                            setGameId(newGame.id); startGameListener(newGame.id);
                         } catch (e) { setTimeout(startMatchmaking, 500); }
                     } else {
-                        // HOST
-                        const myOldEntries = snapshot.docs.filter(doc => doc.data().userId === user.uid);
-                        myOldEntries.forEach(d => deleteDoc(d.ref));
-                        
-                        const myQueueRef = await addDoc(queueRef, { 
-                            userId: user.uid, profile: userProfile, createdAt: serverTimestamp(), matchToken: myMatchToken 
-                        });
-                        
-                        const unsubGameWait = onSnapshot(gamesRef, (gameSnap) => {
-                            const myGame = gameSnap.docs.find(d => d.data().matchToken === myMatchToken && d.data().status === 'active');
-                            if (myGame) { deleteDoc(myQueueRef).catch(() => {}); setGameId(myGame.id); unsubGameWait(); startGameListener(myGame.id); }
+                        snap.docs.filter(d => d.data().userId === user.uid).forEach(d => d.ref.delete());
+                        const myQ = await qRef.add({ userId: user.uid, profile: userProfile, createdAt: firebase.firestore.FieldValue.serverTimestamp(), matchToken: myToken });
+                        const unsub = gRef.onSnapshot((gs) => {
+                            const mg = gs.docs.find(d => d.data().matchToken === myToken && d.data().status === 'active');
+                            if (mg) { myQ.delete().catch(()=>{}); setGameId(mg.id); unsub(); startGameListener(mg.id); }
                         });
                     }
-                } catch (error) { setSystemMessage("Hata: " + error.message); setGameState(GAME_STATES.LOBBY); }
+                } catch (e) { setSystemMessage("Hata: " + e.message); setGameState(GAME_STATES.LOBBY); }
             };
 
             const startGameListener = (id) => {
-                if (!user) return;
-                const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', id);
-                unsubscribeGameRef.current = onSnapshot(gameRef, (docSnap) => {
-                    if (!docSnap.exists()) return;
-                    const data = docSnap.data();
-                    const isP1 = data.player1.userId === user.uid;
-                    const myProf = isP1 ? data.player1.profile : data.player2.profile;
-                    const oppProf = isP1 ? data.player2.profile : data.player1.profile;
-                    setOpponentProfile(oppProf); setCurrentTurn(data.currentTurn);
-                    const matchData = calculateMatch(myProf, oppProf);
-                    setMatchLevel(matchData.level); setSharedCategories(matchData.shared);
-                    if (data.messages) setMessages(data.messages);
-                    if (data.status === 'shared') setIsUnlimitedChat(true);
+                const gRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('games').doc(id);
+                unsubscribeGameRef.current = gRef.onSnapshot((snap) => {
+                    if (!snap.exists) return;
+                    const d = snap.data();
+                    const isP1 = d.player1.userId === user.uid;
+                    const opp = isP1 ? d.player2.profile : d.player1.profile;
+                    setOpponentProfile(opp); setCurrentTurn(d.currentTurn);
+                    let sc = 0; const sh = [];
+                    QUESTIONS.forEach(q => { if (userProfile[q.id]?.toLowerCase().trim() === opp[q.id]?.toLowerCase().trim()) { sc++; sh.push(q.id); } });
+                    let lvl = MATCH_LEVELS[0];
+                    if (sc === 1) lvl = MATCH_LEVELS[1]; else if (sc === 2) lvl = MATCH_LEVELS[2]; else if (sc === 3) lvl = MATCH_LEVELS[3]; else if (sc >= 4) lvl = MATCH_LEVELS[4];
+                    setMatchLevel(lvl); setSharedCategories(sh);
+                    
+                    if (d.messages) setMessages(d.messages);
+                    if (d.status === 'shared') setIsUnlimitedChat(true);
 
-                    setGameState(prevState => {
-                        if (prevState === GAME_STATES.SEARCHING || prevState === GAME_STATES.LOBBY) { setTimeout(() => setGameState(GAME_STATES.CHAT), 2000); return GAME_STATES.MATCH_FOUND; }
-                        if (!isUnlimitedChat && data.status === 'active' && prevState === GAME_STATES.CHAT && data.messages && data.messages.length >= 6) return GAME_STATES.GUESS_LEVEL;
-                        return prevState;
+                    setGameState(prev => {
+                        if (prev === GAME_STATES.SEARCHING || prev === GAME_STATES.LOBBY) { setTimeout(() => setGameState(GAME_STATES.CHAT), 2000); return GAME_STATES.MATCH_FOUND; }
+                        if (!isUnlimitedChat && d.status === 'active' && prev === GAME_STATES.CHAT && d.messages && d.messages.length >= 6) return GAME_STATES.GUESS_LEVEL;
+                        return prev;
                     });
                 });
-            };
-
-            const calculateMatch = (p1Profile, p2Profile) => {
-                if(!p1Profile || !p2Profile) return { level: MATCH_LEVELS[0], shared: [], score: 0 };
-                let score = 0; const shared = [];
-                QUESTIONS.forEach(q => { if (p1Profile[q.id]?.toLowerCase().trim() === p2Profile[q.id]?.toLowerCase().trim()) { score++; shared.push(q.id); } });
-                let level = MATCH_LEVELS[0];
-                if (score === 1) level = MATCH_LEVELS[1]; else if (score === 2) level = MATCH_LEVELS[2]; else if (score === 3) level = MATCH_LEVELS[3]; else if (score >= 4) level = MATCH_LEVELS[4];
-                return { level, shared, score };
             };
 
             const sendMessage = async () => {
                 if (!inputText.trim() || !gameId) return;
                 if (!isUnlimitedChat && currentTurn !== user.uid) { setSystemMessage("Sıra sende değil!"); setTimeout(() => setSystemMessage(null), 2000); return; }
-                const forbiddenWords = Object.values(userProfile).map(v => String(v).toLowerCase());
-                const hasForbidden = forbiddenWords.some(word => word.length > 2 && inputText.toLowerCase().includes(word));
-                if (!isUnlimitedChat && hasForbidden) { setSystemMessage("Yasaklı kelime!"); setInputText(""); setTimeout(() => setSystemMessage(null), 2000); return; }
-                
-                const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', gameId);
+                const forbids = Object.values(userProfile).map(v => String(v).toLowerCase());
+                if (!isUnlimitedChat && forbids.some(w => w.length > 2 && inputText.toLowerCase().includes(w))) { setSystemMessage("Yasaklı kelime!"); setInputText(""); setTimeout(() => setSystemMessage(null), 2000); return; }
+                const gRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('games').doc(gameId);
                 try {
-                    const gameSnapDirect = await getDoc(gameRef);
-                    const gData = gameSnapDirect.data();
-                    const nextTurn = gData.player1.userId === user.uid ? gData.player2.userId : gData.player1.userId;
-                    await updateDoc(gameRef, { messages: [...(gData.messages || []), { senderId: user.uid, text: inputText, timestamp: Date.now(), type: 'text' }], currentTurn: nextTurn });
+                    const gs = await gRef.get(); const gd = gs.data();
+                    const next = gd.player1.userId === user.uid ? gd.player2.userId : gd.player1.userId;
+                    await gRef.update({ messages: [...(gd.messages || []), { senderId: user.uid, text: inputText, timestamp: Date.now(), type: 'text' }], currentTurn: next });
                     setInputText("");
                 } catch (e) {}
             };
 
-            const handleGuessToggle = (catId) => {
-                const limit = guessedLevel ? guessedLevel.limit : 0;
-                const currentCount = Object.values(guesses).filter(Boolean).length;
-                if (!guesses[catId] && currentCount >= limit && limit !== 99) {
-                    setSystemMessage(`Maksimum ${limit} seçim yapabilirsin!`);
-                    setTimeout(() => setSystemMessage(null), 2000);
-                    return;
-                }
-                setGuesses(prev => ({ ...prev, [catId]: !prev[catId] }));
+            const handleGuessToggle = (id) => {
+                const lim = guessedLevel?.limit || 0;
+                const cnt = Object.values(guesses).filter(Boolean).length;
+                if (!guesses[id] && cnt >= lim && lim !== 99) { setSystemMessage(`Maksimum ${lim} seçim!`); setTimeout(() => setSystemMessage(null), 2000); return; }
+                setGuesses(p => ({ ...p, [id]: !p[id] }));
             };
 
             const finalizeScore = () => {
-                let finalScore = 0;
-                if (guessedLevel.id === matchLevel.id) finalScore += 40;
-                const totalShared = sharedCategories.length;
-                if (totalShared > 0) {
-                    let correct = 0; let wrong = 0;
-                    Object.keys(guesses).forEach(key => { if(guesses[key]) { if (sharedCategories.includes(key)) correct++; else wrong++; } });
-                    finalScore += (correct * (60/totalShared)) - (wrong * (60/totalShared));
-                } else { if (Object.values(guesses).filter(Boolean).length === 0) finalScore += 60; }
-                setScore(Math.max(0, Math.min(100, Math.round(finalScore))));
+                let fs = guessedLevel.id === matchLevel.id ? 40 : 0;
+                const ts = sharedCategories.length;
+                if (ts > 0) {
+                    let c = 0, w = 0;
+                    Object.keys(guesses).forEach(k => { if (guesses[k]) { if (sharedCategories.includes(k)) c++; else w++; } });
+                    fs += (c * (60/ts)) - (w * (60/ts));
+                } else if (Object.values(guesses).filter(Boolean).length === 0) fs += 60;
+                setScore(Math.max(0, Math.min(100, Math.round(fs))));
                 setGameState(GAME_STATES.RESULT);
             };
 
             const shareResults = async () => {
                 if (!gameId) return;
-                const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', gameId);
-                const gameSnap = await getDoc(gameRef);
-                await updateDoc(gameRef, { 
-                    status: 'shared',
-                    messages: [...(gameSnap.data().messages||[]), { senderId: user.uid, type: 'result_card', timestamp: Date.now(), data: { score, guessedLevel: guessedLevel.label, realLevel: matchLevel.label } }] 
-                });
-                setSystemMessage("Sonuçlar gönderildi!"); setTimeout(() => { setSystemMessage(null); setGameState(GAME_STATES.LOBBY); }, 2000);
+                const gRef = db.collection('artifacts').doc(APP_ID).collection('public').doc('data').collection('games').doc(gameId);
+                const gs = await gRef.get();
+                await gRef.update({ status: 'shared', messages: [...(gs.data().messages||[]), { senderId: user.uid, type: 'result_card', timestamp: Date.now(), data: { score, guessedLevel: guessedLevel.label } }] });
+                setSystemMessage("Gönderildi!"); setTimeout(() => { setSystemMessage(null); setGameState(GAME_STATES.LOBBY); }, 2000);
             };
 
             const openInboxGame = (game) => {
@@ -487,26 +377,25 @@
                 setGameState(GAME_STATES.CHAT);
             };
 
-            // --- RENDER COMPONENTLERİ ---
-
+            // --- UI RENDER ---
             const renderSettingsModal = () => (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in" onClick={(e) => e.target === e.currentTarget && setShowSettings(false)}>
                     <div className="bg-gray-800 border border-gray-700 p-6 rounded-2xl w-80 shadow-2xl relative">
                         <button onClick={() => setShowSettings(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white"><Icon name="x" /></button>
                         <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2"><Icon name="settings" className="text-pink-500"/> Ayarlar</h2>
                         <div className="space-y-4">
-                            <button onClick={() => { setShowSettings(false); setGameState(GAME_STATES.PROFILE); }} className="w-full flex items-center gap-3 bg-gray-700 hover:bg-gray-600 p-3 rounded-xl transition-colors text-left"><Icon name="user-check" size={20} className="text-blue-400" /> Özelliklerimi Değiştir</button>
+                            <button onClick={() => { setShowSettings(false); setGameState(GAME_STATES.PROFILE); }} className="w-full flex items-center gap-3 bg-gray-700 hover:bg-gray-600 p-3 rounded-xl transition-colors text-left"><Icon name="edit-3" size={20} className="text-blue-400" /> Özelliklerimi Değiştir</button>
                             <div className="bg-gray-700 p-3 rounded-xl"><div className="flex justify-between mb-2 text-sm text-gray-300"><span className="flex items-center gap-2"><Icon name="music" size={16}/> Müzik Sesi</span><span>{Math.round(volume * 100)}%</span></div><input type="range" min="0" max="1" step="0.1" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} /></div>
                             <button onClick={handleLogout} className="w-full flex items-center gap-3 bg-gray-700 hover:bg-gray-600 p-3 rounded-xl transition-colors text-left text-yellow-500"><Icon name="log-out" size={20} /> Çıkış Yap</button>
                             <button onClick={() => setShowDeleteConfirm(true)} className="w-full flex items-center gap-3 bg-red-900/30 hover:bg-red-900/50 border border-red-900 p-3 rounded-xl transition-colors text-left text-red-400"><Icon name="trash-2" size={20} /> Hesabımı Sil</button>
                         </div>
                     </div>
-                    {showDeleteConfirm && (<div className="absolute inset-0 flex items-center justify-center bg-black/90 rounded-2xl"><div className="text-center p-6"><h3 className="text-red-500 font-bold text-lg mb-2">Emin misin?</h3><p className="text-gray-400 text-sm mb-4">Hesabın ve tüm verilerin silinecek.</p><div className="flex gap-2 justify-center"><button onClick={() => setShowDeleteConfirm(false)} className="bg-gray-700 px-4 py-2 rounded-lg">İptal</button><button onClick={handleDeleteAccount} className="bg-red-600 px-4 py-2 rounded-lg text-white font-bold">Sil</button></div></div></div>)}
+                    {showDeleteConfirm && (<div className="absolute inset-0 flex items-center justify-center bg-black/90 rounded-2xl"><div className="text-center p-6"><h3 className="text-red-500 font-bold text-lg mb-2">Emin misin?</h3><div className="flex gap-2 justify-center"><button onClick={() => setShowDeleteConfirm(false)} className="bg-gray-700 px-4 py-2 rounded-lg">İptal</button><button onClick={handleDeleteAccount} className="bg-red-600 px-4 py-2 rounded-lg text-white font-bold">Sil</button></div></div></div>)}
                 </div>
             );
 
-            const renderAuthScreen = () => (
-                <div className="flex flex-col items-center justify-center h-[90vh] p-6 animate-fade-in">
+            if (gameState === GAME_STATES.AUTH) return (
+                <div className="flex flex-col items-center justify-center h-[90vh] p-6 animate-fade-in" onClick={() => bgAudio.paused && bgAudio.play().catch(()=>{})}>
                     <div className="w-full max-w-md bg-gray-800/90 p-8 rounded-2xl border border-gray-700 shadow-2xl">
                         <div className="text-center mb-8"><h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-600 mb-2">GİZEMLİ BAĞ</h1><p className="text-gray-400 text-sm">Kaderindeki kişiyi bulmaya hazır mısın?</p></div>
                         {systemMessage && <div className="bg-red-900/50 border border-red-500 text-red-200 text-sm p-3 rounded-lg mb-4 flex items-center gap-2"><Icon name="alert-circle" size={16} /> {systemMessage}</div>}
@@ -520,20 +409,18 @@
                 </div>
             );
 
-            const renderProfileScreen = () => (
+            if (gameState === GAME_STATES.PROFILE) return (
                 <div className="max-w-4xl mx-auto p-6 pb-20 animate-fade-in">
                     <div className="text-center mb-8"><h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-2">Profil Oluştur</h1></div>
-                    <div className="bg-gray-800/80 p-6 rounded-xl border border-gray-700 mb-6 flex flex-col md:flex-row gap-4">
-                        <div className="flex-1"><label className="text-gray-400 text-sm">İsim</label><input type="text" value={userProfile.name} onChange={(e) => setUserProfile(p => ({...p, name: e.target.value}))} className="w-full bg-gray-900 border border-gray-700 rounded p-2 outline-none" /></div>
-                        <div className="w-32"><label className="text-gray-400 text-sm">Yaş</label><input type="number" value={userProfile.age} onChange={(e) => setUserProfile(p => ({...p, age: e.target.value}))} className="w-full bg-gray-900 border border-gray-700 rounded p-2 outline-none" /></div>
-                    </div>
+                    <div className="bg-gray-800/80 p-6 rounded-xl border border-gray-700 mb-6 flex flex-col md:flex-row gap-4"><div className="flex-1"><label className="text-gray-400 text-sm">İsim</label><input type="text" value={userProfile.name} onChange={(e) => setUserProfile(p => ({...p, name: e.target.value}))} className="w-full bg-gray-900 border border-gray-700 rounded p-2 outline-none" /></div><div className="w-32"><label className="text-gray-400 text-sm">Yaş</label><input type="number" value={userProfile.age} onChange={(e) => setUserProfile(p => ({...p, age: e.target.value}))} className="w-full bg-gray-900 border border-gray-700 rounded p-2 outline-none" /></div></div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{QUESTIONS.map((q) => (<div key={q.id} className="bg-gray-800/50 p-4 rounded-xl border border-gray-700"><label className="flex items-center gap-2 text-pink-500 mb-2"><Icon name={q.iconName} size={18} /> {q.label}</label><div className="flex flex-wrap gap-2 mb-2">{q.options.slice(0,4).map(opt => (<button key={opt} onClick={() => setUserProfile(p => ({...p, [q.id]: opt}))} className={`px-2 py-1 text-xs rounded ${userProfile[q.id] === opt ? 'bg-pink-600 text-white' : 'bg-gray-700 text-gray-300'}`}>{opt}</button>))}</div><input type="text" placeholder="Özel cevap..." value={userProfile[q.id] || ''} onChange={(e) => setUserProfile(p => ({...p, [q.id]: e.target.value}))} className="w-full bg-gray-900 border border-gray-700 rounded p-2 text-sm outline-none" /></div>))}</div>
                     <div className="mt-8 flex justify-center pb-10"><button disabled={!isProfileComplete} onClick={saveProfile} className="px-12 py-4 bg-pink-600 rounded-full font-bold text-white hover:scale-105 transition-transform disabled:opacity-50">Kaydet ve Devam Et</button></div>
                 </div>
             );
 
-            const renderLobbyScreen = () => (
-                <div className="flex flex-col items-center justify-center h-[80vh] animate-fade-in relative">
+            if (gameState === GAME_STATES.LOBBY) return (
+                <div className="flex flex-col items-center justify-center h-[80vh] animate-fade-in relative" onClick={() => bgAudio.paused && bgAudio.play().catch(()=>{})}>
+                    {showSettings && renderSettingsModal()}
                     <div className="absolute top-0 left-0 w-full p-4 flex justify-between items-center">
                         <button onClick={() => setGameState(GAME_STATES.INBOX)} className="relative bg-gray-800 p-3 rounded-full hover:bg-gray-700 border border-gray-600 flex items-center justify-center w-12 h-12"><Icon name="mail" size={24} className="text-white" />{inboxGames.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-xs w-5 h-5 flex items-center justify-center rounded-full">{inboxGames.length}</span>}</button>
                         <div className="flex items-center gap-2 bg-gray-800 px-4 py-2 rounded-full border border-gray-700"><div className={`w-2 h-2 rounded-full ${onlineCount > 0 ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div><span className="text-gray-300 text-sm">{onlineCount} Online</span></div>
@@ -546,27 +433,43 @@
                 </div>
             );
 
-            const renderSearchingScreen = () => (<div className="flex flex-col items-center justify-center h-[80vh]"><div className="relative w-24 h-24"><div className="absolute inset-0 border-t-4 border-pink-500 rounded-full animate-spin"></div><div className="absolute inset-2 border-b-4 border-violet-500 rounded-full animate-spin reverse"></div></div><h3 className="mt-8 text-2xl font-bold text-white">Eşleşme Aranıyor...</h3><button onClick={() => { setGameState(GAME_STATES.LOBBY); setSystemMessage(null); }} className="mt-8 px-6 py-2 bg-gray-800 rounded-full text-sm hover:bg-gray-700 border border-gray-700">İptal Et</button></div>);
-            const renderMatchFoundScreen = () => (<div className="flex flex-col items-center justify-center h-[80vh] animate-bounce-in"><div className="bg-gradient-to-br from-green-500 to-emerald-700 p-6 rounded-full mb-6 shadow-2xl shadow-green-500/30"><Icon name="check" size={64} className="text-white" /></div><h2 className="text-4xl font-bold text-white mb-2">Bağlantı Kuruldu!</h2><div className="bg-gray-800/80 p-6 rounded-xl border border-gray-700 mt-6 text-center backdrop-blur-sm max-w-md"><div className="flex flex-col items-center gap-2"><Icon name="lock" className="text-pink-500" size={32} /><h3 className="text-2xl font-black text-white mb-2">Seviye Gizlendi</h3><p className="text-gray-300 text-sm">Sırayla konuşma başladı. Herkesin 3 mesaj hakkı var.</p></div></div></div>);
-            const renderChatScreen = () => { const isMyTurn = currentTurn === user.uid; const myMessagesCount = messages.filter(m => m.senderId === user.uid && m.type !== 'result_card').length; const remainingRights = 3 - myMessagesCount; return (<div className="h-[85vh] flex flex-col max-w-3xl mx-auto"><div className="bg-gray-800 p-4 rounded-t-xl border-b border-gray-700 flex justify-between items-center"><div className="flex items-center gap-3">{isUnlimitedChat && <button onClick={() => setGameState(GAME_STATES.INBOX)} className="mr-2 text-gray-400 hover:text-white flex items-center justify-center"><Icon name="arrow-left" /></button>}<div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg"><Icon name="user" size={20} className="text-white" /></div><div><h3 className="font-bold text-white">{opponentProfile.name} ({opponentProfile.age})</h3>{!isUnlimitedChat && <span className="text-xs text-gray-400 flex items-center gap-1"><Icon name="lock" size={10} /> Bağ Seviyesi Gizli</span>}</div></div>{!isUnlimitedChat && (<div className="flex items-center gap-2 bg-gray-900 px-3 py-1 rounded-full border border-gray-700"><Icon name="message-circle" size={14} className="text-pink-500" /><span className="text-sm font-bold text-gray-300">Hak: {remainingRights}/3</span></div>)}</div><div className="flex-1 bg-gray-900/50 overflow-y-auto p-4 space-y-4 scrollbar-thin relative">{systemMessage && <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-600/90 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-xl z-50 animate-bounce">{systemMessage}</div>}{messages.map((msg, idx) => { if (msg.type === 'result_card') return (<div key={idx} className="flex justify-center my-4"><div className="bg-gray-800 border border-pink-500/50 rounded-xl p-4 w-64 text-center shadow-lg animate-fade-in"><div className="text-xs text-pink-400 font-bold uppercase tracking-widest mb-2">OYUN SONUCU</div><div className="text-3xl font-black text-white mb-1">{msg.data.score} <span className="text-xs text-gray-400">PUAN</span></div><div className="text-sm text-gray-300 mb-2">{msg.data.guessedLevel}</div></div></div>); const isMe = msg.senderId === user.uid; return (<div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[80%] p-3 rounded-2xl ${isMe ? 'bg-pink-600 text-white rounded-tr-none' : 'bg-gray-700 text-gray-200 rounded-tl-none'}`}>{msg.text}</div></div>); })}<div ref={chatEndRef} /></div><div className="p-4 bg-gray-800 rounded-b-xl border-t border-gray-700">{!isUnlimitedChat && (<div className="mb-2 text-center">{isMyTurn ? <span className="text-green-400 text-xs font-bold animate-pulse">● Sıra Sende!</span> : <span className="text-gray-500 text-xs font-bold">○ Karşı taraf yazıyor...</span>}</div>)}<div className="flex gap-2 items-center"><input type="text" disabled={!isUnlimitedChat && !isMyTurn} value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Mesajını yaz..." className={`flex-1 bg-gray-900 border border-gray-700 rounded-full px-6 py-3 text-white outline-none ${!isUnlimitedChat && !isMyTurn && 'opacity-50'}`} /><button disabled={!isUnlimitedChat && !isMyTurn} onClick={sendMessage} className={`bg-blue-600 hover:bg-blue-700 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110 ${!isUnlimitedChat && !isMyTurn && 'opacity-50 cursor-not-allowed'}`}><Icon name="send" size={20} /></button></div></div></div>); };
-            const renderGuessLevelScreen = () => (<div className="max-w-2xl mx-auto p-6 text-center h-[80vh] flex flex-col justify-center"><h2 className="text-3xl font-bold text-white mb-6">Süre Doldu!</h2><div className="space-y-3 max-w-md mx-auto w-full">{MATCH_LEVELS.map((level) => (<button key={level.id} onClick={() => { setGuessedLevel(level); setGameState(GAME_STATES.GUESS_CRITERIA); }} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 p-4 rounded-xl flex justify-between items-center group"><span className={`text-lg font-bold ${level.color}`}>{level.label}</span><span className="text-gray-500 text-xs">Seç &rarr;</span></button>))}</div></div>);
-            const renderGuessCriteriaScreen = () => (<div className="max-w-4xl mx-auto p-6 pb-20"><h2 className="text-3xl font-bold text-center text-white mb-2">Kanıtın Ne?</h2><p className="text-center text-gray-400 mb-4">"{guessedLevel.label}" için {guessedLevel.limit === 99 ? <span className="text-green-400 font-bold ml-1">SINIRSIZ</span> : <span className="text-pink-500 font-bold ml-1">{guessedLevel.limit} ADET</span>} ortak özellik seçebilirsin.</p>{systemMessage && <div className="text-center text-red-500 font-bold mb-4">{systemMessage}</div>}<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">{QUESTIONS.map((q) => (<button key={q.id} onClick={() => handleGuessToggle(q.id)} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${guesses[q.id] ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-gray-800 border-gray-700 text-gray-500 hover:border-gray-600'}`}><Icon name={q.iconName} size={18} /><span className="text-xs font-medium text-center">{q.label.split('?')[0]}</span></button>))}</div><div className="flex justify-center"><button onClick={finalizeScore} className="bg-gradient-to-r from-pink-600 to-violet-600 px-12 py-4 rounded-full text-white font-bold text-xl hover:scale-105 transition-transform">Sonuçları Gör</button></div></div>);
-            const renderResultScreen = () => (<div className="max-w-4xl mx-auto p-6 pb-20"><div className="text-center mb-8"><h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-6">YÜZLEŞME</h2><div className="relative w-40 h-40 mx-auto"><svg viewBox="0 0 36 36" className="circular-chart"><path className="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" /><path className="circle" strokeDasharray={`${Math.min(score, 100)}, 100`} stroke={score >= 70 ? "#10B981" : score >= 40 ? "#F59E0B" : "#EF4444"} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" /></svg><div className="absolute inset-0 flex flex-col items-center justify-center"><span className="text-3xl font-black text-white">{score}</span><span className="text-[10px] text-gray-400 uppercase tracking-widest">PUAN</span></div></div></div><div className="flex flex-col md:flex-row justify-center gap-6 mt-8 items-center mb-10"><div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 min-w-[200px] text-center"><p className="text-gray-500 text-xs uppercase">Tahminin</p><p className={`text-xl font-bold ${guessedLevel?.color}`}>{guessedLevel?.label}</p></div><div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 min-w-[200px] text-center relative overflow-hidden"><div className="absolute top-0 right-0 bg-pink-600 text-white text-[10px] px-2 py-1 rounded-bl">GERÇEK</div><p className="text-gray-500 text-xs uppercase">Algoritma</p><p className={`text-xl font-bold ${matchLevel.color}`}>{matchLevel.label}</p></div></div><div className="bg-gray-900/50 p-4 rounded-xl border border-gray-800 mb-8 text-center"><h4 className="text-gray-400 text-sm mb-3">Ortak Noktalarınız</h4><div className="flex flex-wrap justify-center gap-2">{sharedCategories.length > 0 ? sharedCategories.map(catId => { const q = QUESTIONS.find(q => q.id === catId); return <span key={catId} className="bg-green-900 text-green-200 px-3 py-1 rounded-full text-xs border border-green-700">{q.label.split('?')[0]}: {userProfile[catId]}</span> }) : <span className="text-gray-500 text-sm">Hiç ortak noktanız yok.</span>}</div></div><div className="flex flex-col gap-4 justify-center items-center mt-8">{!isUnlimitedChat && (<button onClick={shareResults} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-full font-bold flex items-center gap-2 shadow-lg"><Icon name="send" size={20} /> Sonuçları Partnere Gönder</button>)}{isUnlimitedChat && (<button onClick={() => setGameState(GAME_STATES.CHAT)} className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-full font-bold flex items-center gap-2 shadow-lg"><Icon name="message-circle" size={20} /> Sohbete Devam Et</button>)}<button onClick={() => { setGameState(GAME_STATES.LOBBY); setGameId(null); setMessages([]); setQuestionsLeft(3); setCurrentTurn(null); }} className="bg-gradient-to-r from-pink-500 to-violet-600 text-white px-8 py-3 rounded-full font-bold text-lg shadow-lg hover:scale-105 transition-all">Yeni Bir Şans Dene</button></div></div>);
-            const renderInboxScreen = () => (<div className="max-w-2xl mx-auto p-6 h-[80vh]"><div className="flex items-center gap-4 mb-8"><button onClick={() => setGameState(GAME_STATES.LOBBY)} className="p-2 bg-gray-800 rounded-full flex items-center justify-center"><Icon name="arrow-left" /></button><h2 className="text-3xl font-bold">Gelen Kutusu</h2></div><div className="space-y-4 overflow-y-auto h-full pb-20">{inboxGames.length === 0 ? <p className="text-gray-500 text-center">Henüz mesaj yok.</p> : inboxGames.map(g => { const isP1 = g.player1.userId === user.uid; const partner = isP1 ? g.player2.profile : g.player1.profile; return (<div key={g.id} onClick={() => openInboxGame(g)} className="bg-gray-800 p-4 rounded-xl border border-gray-700 flex justify-between items-center cursor-pointer hover:border-pink-500 transition-colors"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center"><Icon name="user" /></div><div><h4 className="font-bold text-white">{partner.name} ({partner.age})</h4><p className="text-xs text-gray-400">Sohbete Devam Et</p></div></div><Icon name="chevron-right" className="text-gray-500" /></div>) })}</div></div>);
-
-            switch(gameState) {
-                case GAME_STATES.AUTH: return renderAuthScreen();
-                case GAME_STATES.PROFILE: return renderProfileScreen();
-                case GAME_STATES.LOBBY: return renderLobbyScreen();
-                case GAME_STATES.SEARCHING: return renderSearchingScreen();
-                case GAME_STATES.MATCH_FOUND: return renderMatchFoundScreen();
-                case GAME_STATES.CHAT: return renderChatScreen();
-                case GAME_STATES.GUESS_LEVEL: return renderGuessLevelScreen();
-                case GAME_STATES.GUESS_CRITERIA: return renderGuessCriteriaScreen();
-                case GAME_STATES.RESULT: return renderResultScreen();
-                case GAME_STATES.INBOX: return renderInboxScreen();
-                default: return renderAuthScreen();
+            if (gameState === GAME_STATES.SEARCHING) return (<div className="flex flex-col items-center justify-center h-[80vh]"><div className="relative w-24 h-24"><div className="absolute inset-0 border-t-4 border-pink-500 rounded-full animate-spin"></div><div className="absolute inset-2 border-b-4 border-violet-500 rounded-full animate-spin reverse"></div></div><h3 className="mt-8 text-2xl font-bold text-white">Eşleşme Aranıyor...</h3><button onClick={() => { setGameState(GAME_STATES.LOBBY); setSystemMessage(null); }} className="mt-8 px-6 py-2 bg-gray-800 rounded-full text-sm hover:bg-gray-700 border border-gray-700">İptal Et</button></div>);
+            if (gameState === GAME_STATES.MATCH_FOUND) return (<div className="flex flex-col items-center justify-center h-[80vh] animate-bounce-in"><div className="bg-gradient-to-br from-green-500 to-emerald-700 p-6 rounded-full mb-6 shadow-2xl shadow-green-500/30"><Icon name="check" size={64} className="text-white" /></div><h2 className="text-4xl font-bold text-white mb-2">Bağlantı Kuruldu!</h2><div className="bg-gray-800/80 p-6 rounded-xl border border-gray-700 mt-6 text-center backdrop-blur-sm max-w-md"><div className="flex flex-col items-center gap-2"><Icon name="lock" className="text-pink-500" size={32} /><h3 className="text-2xl font-black text-white mb-2">Seviye Gizlendi</h3><p className="text-gray-300 text-sm">Sırayla konuşma başladı.</p></div></div></div>);
+            if (gameState === GAME_STATES.GUESS_LEVEL) return (<div className="max-w-2xl mx-auto p-6 text-center h-[80vh] flex flex-col justify-center"><h2 className="text-3xl font-bold text-white mb-6">Süre Doldu!</h2><div className="space-y-3 max-w-md mx-auto w-full">{MATCH_LEVELS.map((level) => (<button key={level.id} onClick={() => { setGuessedLevel(level); setGameState(GAME_STATES.GUESS_CRITERIA); }} className="w-full bg-gray-800 hover:bg-gray-700 border border-gray-700 p-4 rounded-xl flex justify-between items-center group"><span className={`text-lg font-bold ${level.color}`}>{level.label}</span><span className="text-gray-500 text-xs">Seç &rarr;</span></button>))}</div></div>);
+            if (gameState === GAME_STATES.GUESS_CRITERIA) return (<div className="max-w-4xl mx-auto p-6 pb-20"><h2 className="text-3xl font-bold text-center text-white mb-2">Kanıtın Ne?</h2><p className="text-center text-gray-400 mb-4">"{guessedLevel.label}" için {guessedLevel.limit === 99 ? <span className="text-green-400 font-bold ml-1">SINIRSIZ</span> : <span className="text-pink-500 font-bold ml-1">{guessedLevel.limit} ADET</span>} ortak özellik seçebilirsin.</p>{systemMessage && <div className="text-center text-red-500 font-bold mb-4">{systemMessage}</div>}<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">{QUESTIONS.map((q) => (<button key={q.id} onClick={() => handleGuessToggle(q.id)} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${guesses[q.id] ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-gray-800 border-gray-700 text-gray-500 hover:border-gray-600'}`}><Icon name={q.iconName} size={18} /><span className="text-xs font-medium text-center">{q.label.split('?')[0]}</span></button>))}</div><div className="flex justify-center"><button onClick={finalizeScore} className="bg-gradient-to-r from-pink-600 to-violet-600 px-12 py-4 rounded-full text-white font-bold text-xl hover:scale-105 transition-transform">Sonuçları Gör</button></div></div>);
+            if (gameState === GAME_STATES.RESULT) return (<div className="max-w-4xl mx-auto p-6 pb-20"><div className="text-center mb-8"><h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-6">YÜZLEŞME</h2><div className="relative w-40 h-40 mx-auto"><svg viewBox="0 0 36 36" className="circular-chart"><path className="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" /><path className="circle" strokeDasharray={`${Math.min(score, 100)}, 100`} stroke={score >= 70 ? "#10B981" : score >= 40 ? "#F59E0B" : "#EF4444"} d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" /></svg><div className="absolute inset-0 flex flex-col items-center justify-center"><span className="text-3xl font-black text-white">{score}</span><span className="text-[10px] text-gray-400 uppercase tracking-widest">PUAN</span></div></div></div><div className="flex flex-col md:flex-row justify-center gap-6 mt-8 items-center mb-10"><div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 min-w-[200px] text-center"><p className="text-gray-500 text-xs uppercase">Tahminin</p><p className={`text-xl font-bold ${guessedLevel?.color}`}>{guessedLevel?.label}</p></div><div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 min-w-[200px] text-center relative overflow-hidden"><div className="absolute top-0 right-0 bg-pink-600 text-white text-[10px] px-2 py-1 rounded-bl">GERÇEK</div><p className="text-gray-500 text-xs uppercase">Algoritma</p><p className={`text-xl font-bold ${matchLevel.color}`}>{matchLevel.label}</p></div></div><div className="bg-gray-900/50 p-4 rounded-xl border border-gray-800 mb-8 text-center"><h4 className="text-gray-400 text-sm mb-3">Ortak Noktalarınız</h4><div className="flex flex-wrap justify-center gap-2">{sharedCategories.length > 0 ? sharedCategories.map(catId => { const q = QUESTIONS.find(q => q.id === catId); return <span key={catId} className="bg-green-900 text-green-200 px-3 py-1 rounded-full text-xs border border-green-700">{q.label.split('?')[0]}: {userProfile[catId]}</span> }) : <span className="text-gray-500 text-sm">Hiç ortak noktanız yok.</span>}</div></div><div className="flex flex-col gap-4 justify-center items-center mt-8">{!isUnlimitedChat && (<button onClick={shareResults} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-full font-bold flex items-center gap-2 shadow-lg"><Icon name="send" size={20} /> Sonuçları Partnere Gönder</button>)}{isUnlimitedChat && (<button onClick={() => setGameState(GAME_STATES.CHAT)} className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-full font-bold flex items-center gap-2 shadow-lg"><Icon name="message-circle" size={20} /> Sohbete Devam Et</button>)}<button onClick={() => { setGameState(GAME_STATES.LOBBY); setGameId(null); setMessages([]); setQuestionsLeft(3); setCurrentTurn(null); }} className="bg-gradient-to-r from-pink-500 to-violet-600 text-white px-8 py-3 rounded-full font-bold text-lg shadow-lg hover:scale-105 transition-all">Yeni Bir Şans Dene</button></div></div>);
+            if (gameState === GAME_STATES.INBOX) return (<div className="max-w-2xl mx-auto p-6 h-[80vh]"><div className="flex items-center gap-4 mb-8"><button onClick={() => setGameState(GAME_STATES.LOBBY)} className="p-2 bg-gray-800 rounded-full flex items-center justify-center"><Icon name="arrow-left" /></button><h2 className="text-3xl font-bold">Gelen Kutusu</h2></div><div className="space-y-4 overflow-y-auto h-full pb-20">{inboxGames.length === 0 ? <p className="text-gray-500 text-center">Henüz mesaj yok.</p> : inboxGames.map(g => { const isP1 = g.player1.userId === user.uid; const partner = isP1 ? g.player2.profile : g.player1.profile; return (<div key={g.id} onClick={() => openInboxGame(g)} className="bg-gray-800 p-4 rounded-xl border border-gray-700 flex justify-between items-center cursor-pointer hover:border-pink-500 transition-colors"><div className="flex items-center gap-4"><div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center"><Icon name="user" /></div><div><h4 className="font-bold text-white">{partner.name} ({partner.age})</h4><p className="text-xs text-gray-400">Sohbete Devam Et</p></div></div><Icon name="chevron-right" className="text-gray-500" /></div>) })}</div></div>);
+            if (gameState === GAME_STATES.CHAT) {
+                const isMyTurn = currentTurn === user.uid;
+                const myMessagesCount = messages.filter(m => m.senderId === user.uid && m.type !== 'result_card').length;
+                const remainingRights = 3 - myMessagesCount;
+                return (
+                    <div className="h-[85vh] flex flex-col max-w-3xl mx-auto">
+                        <div className="bg-gray-800 p-4 rounded-t-xl border-b border-gray-700 flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                {isUnlimitedChat && <button onClick={() => setGameState(GAME_STATES.INBOX)} className="mr-2 text-gray-400 hover:text-white flex items-center justify-center"><Icon name="arrow-left" /></button>}
+                                <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg"><Icon name="user" size={20} className="text-white" /></div><div><h3 className="font-bold text-white">{opponentProfile.name} ({opponentProfile.age})</h3>{!isUnlimitedChat && <span className="text-xs text-gray-400 flex items-center gap-1"><Icon name="lock" size={10} /> Bağ Seviyesi Gizli</span>}</div>
+                            </div>
+                            {!isUnlimitedChat && (<div className="flex items-center gap-2 bg-gray-900 px-3 py-1 rounded-full border border-gray-700"><Icon name="message-circle" size={14} className="text-pink-500" /><span className="text-sm font-bold text-gray-300">Hak: {remainingRights}/3</span></div>)}
+                        </div>
+                        <div className="flex-1 bg-gray-900/50 overflow-y-auto p-4 space-y-4 scrollbar-thin relative">
+                            {systemMessage && <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-600/90 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-xl z-50 animate-bounce">{systemMessage}</div>}
+                            {messages.map((msg, idx) => {
+                                if (msg.type === 'result_card') return (<div key={idx} className="flex justify-center my-4"><div className="bg-gray-800 border border-pink-500/50 rounded-xl p-4 w-64 text-center shadow-lg animate-fade-in"><div className="text-xs text-pink-400 font-bold uppercase tracking-widest mb-2">OYUN SONUCU</div><div className="text-3xl font-black text-white mb-1">{msg.data.score} <span className="text-xs text-gray-400">PUAN</span></div><div className="text-sm text-gray-300 mb-2">{msg.data.guessedLevel}</div></div></div>);
+                                const isMe = msg.senderId === user.uid;
+                                return (<div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[80%] p-3 rounded-2xl ${isMe ? 'bg-pink-600 text-white rounded-tr-none' : 'bg-gray-700 text-gray-200 rounded-tl-none'}`}>{msg.text}</div></div>);
+                            })}
+                            <div ref={chatEndRef} />
+                        </div>
+                        <div className="p-4 bg-gray-800 rounded-b-xl border-t border-gray-700">
+                            {!isUnlimitedChat && (<div className="mb-2 text-center">{isMyTurn ? <span className="text-green-400 text-xs font-bold animate-pulse">● Sıra Sende!</span> : <span className="text-gray-500 text-xs font-bold">○ Karşı taraf yazıyor...</span>}</div>)}
+                            <div className="flex gap-2 items-center"><input type="text" disabled={!isUnlimitedChat && !isMyTurn} value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Mesajını yaz..." className={`flex-1 bg-gray-900 border border-gray-700 rounded-full px-6 py-3 text-white outline-none ${!isUnlimitedChat && !isMyTurn && 'opacity-50'}`} /><button disabled={!isUnlimitedChat && !isMyTurn} onClick={sendMessage} className={`bg-blue-600 hover:bg-blue-700 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-lg transition-all hover:scale-110 ${!isUnlimitedChat && !isMyTurn && 'opacity-50 cursor-not-allowed'}`}><Icon name="send" size={20} /></button></div>
+                        </div>
+                    </div>
+                );
             }
+
+            return null;
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
