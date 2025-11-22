@@ -27,16 +27,16 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
-        // --- FIREBASE MODÜLLERİ (CDN) ---
+        // --- FIREBASE MODÜLLERİ ---
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
         import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
         import { 
-            getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, 
+            getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, getDoc,
             query, where, getDocs, deleteDoc, setDoc, serverTimestamp 
         } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
 
         // ==================================================================
-        // SENİN FIREBASE BİLGİLERİN (lier-db123)
+        // FIREBASE AYARLARI (Senin Bilgilerin)
         // ==================================================================
         const firebaseConfig = {
             apiKey: "AIzaSyC67niOAv8lLVAlDDRVSCQFTdyJO2eMn94",
@@ -47,9 +47,7 @@
             appId: "1:637814349438:web:c670c3e13dd5bd28a6422f",
             measurementId: "G-FLFVH8Z4R9"
         };
-        // ==================================================================
 
-        // Firebase Başlatma
         let app, auth, db;
         try {
             app = initializeApp(firebaseConfig);
@@ -59,7 +57,7 @@
             console.error("Firebase başlatma hatası:", e);
         }
         
-        const APP_ID = "mystery-connection-v2"; 
+        const APP_ID = "mystery-connection-v3"; 
 
         // --- IKON BİLEŞENİ ---
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -76,7 +74,7 @@
             return <span ref={iconRef} data-name={name} className="inline-flex items-center justify-center"></span>;
         };
 
-        // --- OYUN VERİLERİ ---
+        // --- SABİTLER ---
         const GAME_STATES = {
             PROFILE: 'PROFILE',
             LOBBY: 'LOBBY',
@@ -117,117 +115,58 @@
             const [user, setUser] = useState(null);
             const [authError, setAuthError] = useState(null);
             const [gameState, setGameState] = useState(GAME_STATES.PROFILE);
-            const [userProfile, setUserProfile] = useState({});
+            const [userProfile, setUserProfile] = useState({ name: '', age: '' });
             const [opponentProfile, setOpponentProfile] = useState({});
             const [matchLevel, setMatchLevel] = useState(null);
             const [sharedCategories, setSharedCategories] = useState([]);
             
             const [gameId, setGameId] = useState(null);
+            const [currentTurn, setCurrentTurn] = useState(null); // KİMİN SIRASI?
             const [onlineCount, setOnlineCount] = useState(0);
             const unsubscribeGameRef = useRef(null);
 
             const [messages, setMessages] = useState([]);
             const [inputText, setInputText] = useState("");
-            const [questionsLeft, setQuestionsLeft] = useState(3);
             const [systemMessage, setSystemMessage] = useState(null);
             
             const [guessedLevel, setGuessedLevel] = useState(null);
             const [guesses, setGuesses] = useState({});
             const chatEndRef = useRef(null);
 
-            // 1. AUTHENTICATION & CONFIG CHECK
+            // 1. AUTHENTICATION
             useEffect(() => {
-                if (!auth) {
-                    setAuthError({ title: "Firebase Hatası", msg: "Firebase başlatılamadı. Config ayarlarını kontrol edin." });
-                    return;
-                }
-
-                const performLogin = () => {
-                    setAuthError(null);
-                    signInAnonymously(auth).catch(err => {
-                        console.error("Auth Error:", err);
-                        let errorMsg = "Bilinmeyen bir hata oluştu.";
-                        let errorTitle = "Giriş Yapılamadı";
-
-                        if (err.code === 'auth/operation-not-allowed') {
-                            errorTitle = "Anonim Giriş Kapalı";
-                            errorMsg = "Lütfen Firebase Konsol -> Authentication -> Sign-in method kısmından 'Anonymous' giriş seçeneğini etkinleştirin.";
-                        } else if (err.code === 'auth/invalid-api-key') {
-                            errorTitle = "Geçersiz API Key";
-                            errorMsg = "API Anahtarınız hatalı görünüyor. Lütfen config ayarlarını kontrol edin.";
-                        } else if (err.code === 'auth/network-request-failed') {
-                            errorTitle = "Bağlantı Hatası";
-                            errorMsg = "İnternet bağlantınızı kontrol edin.";
-                        } else if (err.code === 'auth/project-not-found') {
-                            errorTitle = "Proje Bulunamadı";
-                            errorMsg = "Project ID yanlış veya proje silinmiş.";
-                        }
-                        
-                        setAuthError({ title: errorTitle, msg: errorMsg });
-                    });
-                };
-
-                performLogin();
-                
-                const unsubscribe = onAuthStateChanged(auth, (u) => {
-                    if (u) {
-                        setUser(u);
-                        setAuthError(null);
-                    } else {
-                        setUser(null);
-                    }
-                });
+                if (!auth) return;
+                signInAnonymously(auth).catch(err => setAuthError({ title: "Giriş Hatası", msg: err.message }));
+                const unsubscribe = onAuthStateChanged(auth, (u) => { if (u) setUser(u); });
                 return () => unsubscribe();
             }, []);
 
             // 2. ONLINE SAYISI
             useEffect(() => {
                 if (!user) return;
-
                 const updatePresence = () => {
                     const presenceRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'presence', user.uid);
-                    setDoc(presenceRef, { 
-                        lastSeen: serverTimestamp(),
-                        userId: user.uid 
-                    }, { merge: true }).catch(e => console.log("Presence hatası (önemsiz):", e));
+                    setDoc(presenceRef, { lastSeen: serverTimestamp(), userId: user.uid }, { merge: true });
                 };
-                
                 updatePresence();
-                const interval = setInterval(updatePresence, 20000);
-
+                const interval = setInterval(updatePresence, 30000);
                 const presenceColl = collection(db, 'artifacts', APP_ID, 'public', 'data', 'presence');
                 const unsubPresence = onSnapshot(presenceColl, (snapshot) => {
                     const now = new Date();
-                    const activeUsers = snapshot.docs.filter(doc => {
-                        const data = doc.data();
-                        if (!data.lastSeen) return true; 
-                        return (now - data.lastSeen.toDate()) < 120000;
-                    });
-                    setOnlineCount(activeUsers.length);
-                }, (err) => console.log("Online sayacı hatası:", err));
-
-                return () => {
-                    clearInterval(interval);
-                    unsubPresence();
-                };
+                    setOnlineCount(snapshot.docs.filter(d => d.data().lastSeen && (now - d.data().lastSeen.toDate()) < 120000).length);
+                });
+                return () => { clearInterval(interval); unsubPresence(); };
             }, [user]);
 
-            useEffect(() => {
-                chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-            }, [messages]);
+            useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-            const handleInputChange = (id, value) => {
-                setUserProfile(prev => ({ ...prev, [id]: value }));
-            };
-            const isProfileComplete = QUESTIONS.every(q => userProfile[q.id] && userProfile[q.id].trim() !== "");
+            // PROFIL VALIDATION
+            const handleInputChange = (id, value) => setUserProfile(prev => ({ ...prev, [id]: value }));
+            const isProfileComplete = userProfile.name && userProfile.age && QUESTIONS.every(q => userProfile[q.id] && userProfile[q.id].trim() !== "");
 
-            // 3. MATCHMAKING
+            // 3. MATCHMAKING (Sıra Belirleme Eklendi)
             const startMatchmaking = async () => {
-                if (!user) {
-                    setSystemMessage("Oturum açılmamış. Lütfen sayfayı yenileyin.");
-                    return;
-                }
-                
+                if (!user) return;
                 setGameState(GAME_STATES.SEARCHING);
                 setSystemMessage(null);
 
@@ -239,37 +178,37 @@
                     const opponentDoc = snapshot.docs.find(doc => doc.data().userId !== user.uid);
 
                     if (opponentDoc) {
+                        // --- EŞLEŞME KURAN KİŞİ ---
                         const opponentData = opponentDoc.data();
                         try {
                             await deleteDoc(opponentDoc.ref);
+                            
+                            // RASTGELE BAŞLANGIÇ SIRASI
+                            const starter = Math.random() < 0.5 ? user.uid : opponentData.userId;
+
                             const newGameRef = await addDoc(gamesRef, {
                                 player1: opponentData,
                                 player2: { userId: user.uid, profile: userProfile },
                                 status: 'active',
+                                currentTurn: starter, // Sıra kimde?
                                 createdAt: serverTimestamp(),
                                 messages: []
                             });
                             setGameId(newGameRef.id);
                             startGameListener(newGameRef.id);
-                        } catch (deleteError) {
-                            setTimeout(startMatchmaking, 500);
-                        }
+                        } catch (e) { setTimeout(startMatchmaking, 500); }
                     } else {
+                        // --- BEKLEYEN KİŞİ ---
                         const myOldEntries = snapshot.docs.filter(doc => doc.data().userId === user.uid);
                         myOldEntries.forEach(d => deleteDoc(d.ref));
 
-                        const myQueueRef = await addDoc(queueRef, {
-                            userId: user.uid,
-                            profile: userProfile,
-                            createdAt: serverTimestamp()
-                        });
+                        const myQueueRef = await addDoc(queueRef, { userId: user.uid, profile: userProfile, createdAt: serverTimestamp() });
 
                         const unsubGameWait = onSnapshot(gamesRef, (gameSnap) => {
                             const myGame = gameSnap.docs.find(d => {
                                 const data = d.data();
                                 return data.player1 && data.player1.userId === user.uid && data.status === 'active';
                             });
-
                             if (myGame) {
                                 deleteDoc(myQueueRef).catch(() => {}); 
                                 setGameId(myGame.id);
@@ -279,7 +218,7 @@
                         });
                     }
                 } catch (error) {
-                    setSystemMessage("Bağlantı hatası: " + error.message);
+                    setSystemMessage("Hata: " + error.message);
                     setGameState(GAME_STATES.LOBBY);
                 }
             };
@@ -297,16 +236,26 @@
                     const oppProf = isP1 ? data.player2.profile : data.player1.profile;
                     
                     setOpponentProfile(oppProf);
+                    setCurrentTurn(data.currentTurn); // Sıra kimde bilgisini al
+                    
                     const matchData = calculateMatch(myProf, oppProf);
                     setMatchLevel(matchData.level);
                     setSharedCategories(matchData.shared);
                     
                     if (data.messages) setMessages(data.messages);
 
-                    if (gameState === GAME_STATES.SEARCHING || gameState === GAME_STATES.LOBBY) {
-                        setGameState(GAME_STATES.MATCH_FOUND);
-                        setTimeout(() => setGameState(GAME_STATES.CHAT), 3000);
-                    }
+                    // BUG FIX: Sadece lobby veya searching modundaysan geçiş yap.
+                    setGameState(prevState => {
+                        if (prevState === GAME_STATES.SEARCHING || prevState === GAME_STATES.LOBBY) {
+                            setTimeout(() => setGameState(GAME_STATES.CHAT), 3000);
+                            return GAME_STATES.MATCH_FOUND;
+                        }
+                        // 3 Mesaj Kuralı: Toplam mesaj 6 olduğunda tahmin ekranına at
+                        if (prevState === GAME_STATES.CHAT && data.messages && data.messages.length >= 6) {
+                             return GAME_STATES.GUESS_LEVEL;
+                        }
+                        return prevState;
+                    });
                 });
             };
 
@@ -328,53 +277,75 @@
             };
 
             const sendMessage = async () => {
-                if (!inputText.trim() || questionsLeft <= 0 || !gameId) return;
-
-                const forbiddenWords = Object.values(userProfile).map(v => String(v).toLowerCase());
-                const inputLower = inputText.toLowerCase();
-                const hasForbidden = forbiddenWords.some(word => inputLower.includes(word));
-
-                if (hasForbidden) {
-                    setSystemMessage("UYARI: Yasaklı kelime! Mesaj gitmedi, hak yandı.");
-                    setQuestionsLeft(prev => prev - 1);
-                    setInputText("");
-                    setTimeout(() => setSystemMessage(null), 3000);
+                if (!inputText.trim() || !gameId) return;
+                
+                // SIRA KONTROLÜ
+                if (currentTurn !== user.uid) {
+                    setSystemMessage("Sıra henüz sende değil!");
+                    setTimeout(() => setSystemMessage(null), 2000);
                     return;
                 }
 
-                const newMessage = { senderId: user.uid, text: inputText, timestamp: Date.now() };
+                // YASAKLI KELİME KONTROLÜ (Gelişmiş)
+                const forbiddenWords = Object.values(userProfile).map(v => String(v).toLowerCase());
+                const inputLower = inputText.toLowerCase();
+                const hasForbidden = forbiddenWords.some(word => word.length > 2 && inputLower.includes(word));
+
+                // DÜZELTİLMİŞ MESAJ GÖNDERME MANTIĞI
                 const gameRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'games', gameId);
-                try {
-                    const updatedMessages = [...messages, newMessage];
-                    await updateDoc(gameRef, { messages: updatedMessages });
+                
+                if (hasForbidden) {
+                    setSystemMessage("Yasaklı kelime kullandın! (İsim, yaş veya özellikler)");
                     setInputText("");
-                    setQuestionsLeft(prev => prev - 1);
-                } catch (e) {}
+                    setTimeout(() => setSystemMessage(null), 3000);
+                    return; 
+                }
+                
+                try {
+                    // Önce oyun durumunu çekelim ki sıranın kime geçeceğini bulalım
+                    const gameSnapDirect = await getDoc(gameRef);
+                    if (!gameSnapDirect.exists()) return;
+                    
+                    const gData = gameSnapDirect.data();
+                    // Eğer Player1 isem sıra Player2'ye geçer, değilse Player1'e geçer
+                    const nextTurn = gData.player1.userId === user.uid ? gData.player2.userId : gData.player1.userId;
+                    
+                    // Mevcut mesajların üzerine ekle
+                    const currentMessages = gData.messages || [];
+                    const newMessage = { senderId: user.uid, text: inputText, timestamp: Date.now() };
+
+                    await updateDoc(gameRef, { 
+                        messages: [...currentMessages, newMessage],
+                        currentTurn: nextTurn 
+                    });
+                    
+                    setInputText("");
+                } catch (e) {
+                    console.error("Mesaj gönderme hatası:", e);
+                    setSystemMessage("Mesaj gönderilemedi. Lütfen tekrar dene.");
+                }
             };
 
             // --- COMPONENTS ---
-            const AuthErrorBanner = () => (
-                authError ? (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-                        <div className="bg-red-900/90 border border-red-500 rounded-xl p-6 max-w-md text-center shadow-2xl animate-bounce-in">
-                            <Icon name="alert-triangle" size={48} className="mx-auto text-red-200 mb-4" />
-                            <h3 className="text-xl font-bold text-white mb-2">{authError.title}</h3>
-                            <p className="text-red-100 mb-6">{authError.msg}</p>
-                            <button onClick={() => window.location.reload()} className="bg-white text-red-900 px-6 py-2 rounded-full font-bold hover:bg-red-100 transition-colors">
-                                Sayfayı Yenile
-                            </button>
-                        </div>
-                    </div>
-                ) : null
-            );
-
             const renderProfileScreen = () => (
                 <div className="max-w-4xl mx-auto p-6 pb-20 animate-fade-in">
-                    <AuthErrorBanner />
                     <div className="text-center mb-8">
                         <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-2">Ruh Eşi Algoritması</h1>
-                        <p className="text-gray-400">Profilini oluştur, kaderindeki kişiyle eşleş.</p>
+                        <p className="text-gray-400">Profilini doldur, ismini gizlemeden oyna.</p>
                     </div>
+
+                    {/* İSİM VE YAŞ GİRİŞİ */}
+                    <div className="bg-gray-800/80 p-6 rounded-xl border border-gray-700 mb-6 flex flex-col md:flex-row gap-4">
+                        <div className="flex-1">
+                            <label className="block text-sm font-medium text-gray-400 mb-1">İsminiz (Oyunda Görünecek)</label>
+                            <input type="text" value={userProfile.name} onChange={(e) => handleInputChange('name', e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 focus:border-pink-500 focus:ring-1 focus:ring-pink-500 outline-none transition-all" placeholder="Örn: Ahmet" />
+                        </div>
+                        <div className="w-full md:w-32">
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Yaşınız</label>
+                            <input type="number" value={userProfile.age} onChange={(e) => handleInputChange('age', e.target.value)} className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 focus:border-pink-500 outline-none transition-all" placeholder="24" />
+                        </div>
+                    </div>
+                    
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {QUESTIONS.map((q) => (
                             <div key={q.id} className="bg-gray-800/50 p-4 rounded-xl border border-gray-700 hover:border-pink-500/50 transition-all group">
@@ -395,7 +366,7 @@
                     </div>
                     <div className="mt-8 flex justify-center pb-10">
                         <button disabled={!isProfileComplete || !user} onClick={() => setGameState(GAME_STATES.LOBBY)} className={`px-12 py-4 rounded-full font-bold text-lg transition-all transform ${isProfileComplete && user ? 'bg-gradient-to-r from-pink-600 to-violet-600 text-white hover:scale-105 hover:shadow-xl shadow-purple-500/20' : 'bg-gray-800 text-gray-600 cursor-not-allowed border border-gray-700'}`}>
-                            {!user ? "Bağlanılıyor..." : isProfileComplete ? "Lobiye Giriş Yap" : "Lütfen Tüm Soruları Cevapla"}
+                            {!user ? "Bağlanılıyor..." : isProfileComplete ? "Lobiye Giriş Yap" : "Eksik Alanları Doldur"}
                         </button>
                     </div>
                 </div>
@@ -407,13 +378,7 @@
                         <div className={`w-2 h-2 rounded-full ${onlineCount > 0 ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
                         <span className="text-gray-300 text-sm font-medium">{onlineCount} Kişi Online</span>
                     </div>
-                    
-                    {systemMessage && (
-                         <div className="absolute top-20 bg-red-900/80 text-white px-6 py-3 rounded-lg border border-red-500 shadow-xl z-50 animate-bounce text-center max-w-md">
-                             <Icon name="alert-circle" className="inline mr-2"/> {systemMessage}
-                         </div>
-                    )}
-
+                    {systemMessage && <div className="absolute top-20 bg-red-900/80 text-white px-6 py-3 rounded-lg border border-red-500 shadow-xl z-50 animate-bounce text-center max-w-md"><Icon name="alert-circle" className="inline mr-2"/> {systemMessage}</div>}
                     <h2 className="text-4xl font-black text-white mb-16 tracking-tight">KADER ANI</h2>
                     <div className="relative group cursor-pointer" onClick={startMatchmaking}>
                         <div className="absolute -inset-4 bg-red-500/20 rounded-full blur-xl group-hover:bg-red-500/40 transition-all duration-500 animate-pulse"></div>
@@ -436,7 +401,6 @@
                         <div className="absolute inset-2 border-b-4 border-violet-500 rounded-full animate-spin reverse"></div>
                     </div>
                     <h3 className="mt-8 text-2xl font-bold text-white">Eşleşme Aranıyor...</h3>
-                    <p className="mt-2 text-gray-500 text-sm text-center max-w-xs">Kuyrukta bekleyenler kontrol ediliyor.<br/>Kimse yoksa bekleme listesine alınacaksın.</p>
                     <button onClick={() => { setGameState(GAME_STATES.LOBBY); setSystemMessage(null); }} className="mt-8 px-6 py-2 bg-gray-800 rounded-full text-sm hover:bg-gray-700 border border-gray-700">İptal Et</button>
                 </div>
             );
@@ -451,71 +415,93 @@
                         <div className="flex flex-col items-center gap-2">
                             <Icon name="lock" className="text-pink-500" size={32} />
                             <h3 className="text-2xl font-black text-white mb-2">Seviye Gizlendi</h3>
-                            <p className="text-gray-300 text-sm">Karşındaki gerçek bir insan. Onunla konuşarak aranızdaki uyumu keşfet.</p>
+                            <p className="text-gray-300 text-sm">Sırayla konuşma başladı. Herkesin 3 mesaj hakkı var.</p>
                         </div>
                     </div>
                 </div>
             );
 
-            const renderChatScreen = () => (
-                <div className="h-[85vh] flex flex-col max-w-3xl mx-auto">
-                    <div className="bg-gray-800 p-4 rounded-t-xl border-b border-gray-700 flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg shadow-indigo-500/20">
-                                <Icon name="user" size={20} className="text-white" />
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-white">Gizli Partner</h3>
-                                <span className="text-xs text-gray-400 flex items-center gap-1"><Icon name="lock" size={10} /> Bağ Seviyesi: ???</span>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-2 bg-gray-900 px-3 py-1 rounded-full border border-gray-700">
-                            <Icon name="help-circle" size={14} className="text-pink-500" />
-                            <span className="text-sm font-bold text-gray-300">Hak: {questionsLeft}</span>
-                        </div>
-                    </div>
-                    <div className="flex-1 bg-gray-900/50 overflow-y-auto p-4 space-y-4 scrollbar-thin relative">
-                        {systemMessage && (
-                            <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-600/90 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-xl z-50 animate-bounce">
-                                <Icon name="alert-circle" size={16} className="inline mr-2"/> {systemMessage}
-                            </div>
-                        )}
-                        <div className="text-center my-4">
-                            <span className="bg-gray-800 text-gray-400 text-xs px-3 py-1 rounded-full border border-gray-700">Sohbet Başladı - Cevaplarını söylersen mesaj gitmez!</span>
-                        </div>
-                        {messages.map((msg, idx) => {
-                            const isMe = msg.senderId === user.uid;
-                            return (
-                                <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                                    <div className={`max-w-[80%] p-3 rounded-2xl ${isMe ? 'bg-pink-600 text-white rounded-tr-none' : 'bg-gray-700 text-gray-200 rounded-tl-none'}`}>
-                                        {msg.text}
-                                    </div>
+            const renderChatScreen = () => {
+                const isMyTurn = currentTurn === user.uid;
+                const myMessagesCount = messages.filter(m => m.senderId === user.uid).length;
+                const remainingRights = 3 - myMessagesCount;
+
+                return (
+                    <div className="h-[85vh] flex flex-col max-w-3xl mx-auto">
+                        <div className="bg-gray-800 p-4 rounded-t-xl border-b border-gray-700 flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center shadow-lg shadow-indigo-500/20">
+                                    <Icon name="user" size={20} className="text-white" />
                                 </div>
-                            );
-                        })}
-                        <div ref={chatEndRef} />
-                    </div>
-                    <div className="p-4 bg-gray-800 rounded-b-xl border-t border-gray-700">
-                        {questionsLeft > 0 ? (
+                                <div>
+                                    <h3 className="font-bold text-white">{opponentProfile.name || "İsimsiz"} <span className="text-xs font-normal text-gray-400">({opponentProfile.age || "?"})</span></h3>
+                                    <span className="text-xs text-gray-400 flex items-center gap-1"><Icon name="lock" size={10} /> Bağ Seviyesi Gizli</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 bg-gray-900 px-3 py-1 rounded-full border border-gray-700">
+                                <Icon name="message-circle" size={14} className={remainingRights === 0 ? "text-red-500" : "text-pink-500"} />
+                                <span className="text-sm font-bold text-gray-300">Hak: {remainingRights}/3</span>
+                            </div>
+                        </div>
+                        <div className="flex-1 bg-gray-900/50 overflow-y-auto p-4 space-y-4 scrollbar-thin relative">
+                            {systemMessage && (
+                                <div className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-red-600/90 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-xl z-50 animate-bounce">
+                                    <Icon name="alert-circle" size={16} className="inline mr-2"/> {systemMessage}
+                                </div>
+                            )}
+                            <div className="text-center my-4">
+                                <span className="bg-gray-800 text-gray-400 text-xs px-3 py-1 rounded-full border border-gray-700">Sohbet Başladı - Yasaklı kelimeleri kullanma!</span>
+                            </div>
+                            {messages.map((msg, idx) => {
+                                const isMe = msg.senderId === user.uid;
+                                return (
+                                    <div key={idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                        <div className={`max-w-[80%] p-3 rounded-2xl ${isMe ? 'bg-pink-600 text-white rounded-tr-none' : 'bg-gray-700 text-gray-200 rounded-tl-none'}`}>
+                                            <div className="text-xs opacity-70 mb-1">{isMe ? "Sen" : opponentProfile.name}</div>
+                                            {msg.text}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                            <div ref={chatEndRef} />
+                        </div>
+                        <div className="p-4 bg-gray-800 rounded-b-xl border-t border-gray-700">
+                             {/* SIRA GÖSTERGESİ */}
+                            <div className="mb-2 text-center">
+                                {isMyTurn ? (
+                                    <span className="text-green-400 text-xs font-bold animate-pulse">● Sıra Sende! Mesajını yaz.</span>
+                                ) : (
+                                    <span className="text-gray-500 text-xs font-bold">○ {opponentProfile.name} yazıyor... Bekle.</span>
+                                )}
+                            </div>
+
                             <div className="flex gap-2">
-                                <input type="text" value={inputText} onChange={(e) => setInputText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessage()} placeholder="Dolaylı bir soru sor..." className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-pink-500 transition-colors placeholder-gray-600" />
-                                <button onClick={sendMessage} className="bg-pink-600 hover:bg-pink-700 text-white px-4 rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-pink-600/20">
+                                <input 
+                                    type="text" 
+                                    disabled={!isMyTurn}
+                                    value={inputText} 
+                                    onChange={(e) => setInputText(e.target.value)} 
+                                    onKeyDown={(e) => e.key === 'Enter' && sendMessage()} 
+                                    placeholder={isMyTurn ? "Mesajını yaz..." : "Sıranı bekle..."}
+                                    className={`flex-1 bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 text-white focus:outline-none transition-colors placeholder-gray-600 ${!isMyTurn && 'opacity-50 cursor-not-allowed'}`} 
+                                />
+                                <button 
+                                    disabled={!isMyTurn}
+                                    onClick={sendMessage} 
+                                    className={`bg-pink-600 text-white px-4 rounded-lg transition-colors flex items-center justify-center shadow-lg shadow-pink-600/20 ${!isMyTurn ? 'opacity-50 cursor-not-allowed' : 'hover:bg-pink-700'}`}
+                                >
                                     <Icon name="send" size={20} />
                                 </button>
                             </div>
-                        ) : (
-                            <button onClick={() => setGameState(GAME_STATES.GUESS_LEVEL)} className="w-full bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold py-4 rounded-lg animate-pulse shadow-lg shadow-violet-500/20">
-                                Soru Hakkın Bitti - Tahmin Ekranına Geç
-                            </button>
-                        )}
+                        </div>
                     </div>
-                </div>
-            );
+                );
+            };
 
             const renderGuessLevelScreen = () => (
                 <div className="max-w-2xl mx-auto p-6 text-center h-[80vh] flex flex-col justify-center">
-                    <h2 className="text-3xl font-bold text-white mb-6">Hissiyatın Ne?</h2>
-                    <p className="text-gray-400 mb-10 text-lg">Karşıdaki gerçek kişiyle konuşmalarına dayanarak...</p>
+                    <h2 className="text-3xl font-bold text-white mb-6">Süre Doldu!</h2>
+                    <p className="text-gray-400 mb-10 text-lg">Konuşmalarınıza dayanarak, {opponentProfile.name} ile aranızdaki uyum nedir?</p>
                     <div className="space-y-3 max-w-md mx-auto w-full">
                         {MATCH_LEVELS.map((level) => (
                             <button key={level.id} onClick={() => { setGuessedLevel(level); setGameState(GAME_STATES.GUESS_CRITERIA); }} className="w-full bg-gray-800/80 hover:bg-gray-700 border border-gray-700 hover:border-pink-500 p-4 rounded-xl transition-all flex items-center justify-between group backdrop-blur-sm">
@@ -530,7 +516,7 @@
             const renderGuessCriteriaScreen = () => (
                 <div className="max-w-4xl mx-auto p-6 pb-20">
                     <h2 className="text-3xl font-bold text-center text-white mb-2">Neden "{guessedLevel?.label}"?</h2>
-                    <p className="text-center text-gray-400 mb-8">Hangi konularda eşleştiğinizi düşünüyorsun?</p>
+                    <p className="text-center text-gray-400 mb-8">Hangi konularda ortak olduğunuzu düşünüyorsun?</p>
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-8">
                         {QUESTIONS.map((q) => (
                             <button key={q.id} onClick={() => setGuesses(prev => ({ ...prev, [q.id]: !prev[q.id] }))} className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${guesses[q.id] ? 'bg-pink-500/20 border-pink-500 text-pink-400' : 'bg-gray-800 border-gray-700 text-gray-500 hover:border-gray-600'}`}>
@@ -548,33 +534,47 @@
             const renderResultScreen = () => {
                 if (!matchLevel) return <div>Veriler yükleniyor...</div>;
                 const correctGuesses = Object.keys(guesses).filter(id => guesses[id] && sharedCategories.includes(id)).length;
+                const totalShared = sharedCategories.length;
+                const successRate = totalShared > 0 ? Math.round((correctGuesses / totalShared) * 100) : (Object.keys(guesses).length === 0 ? 100 : 0);
                 const levelGuessCorrect = guessedLevel?.id === matchLevel?.id;
 
                 return (
                     <div className="max-w-4xl mx-auto p-6 pb-20">
-                        <div className="text-center mb-10">
-                            <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-4">YÜZLEŞME</h2>
-                            <div className="flex flex-col md:flex-row justify-center gap-6 mt-8 items-center">
-                                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 min-w-[200px]">
-                                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Senin Hissin</p>
-                                    <p className={`text-xl font-bold ${guessedLevel?.color}`}>{guessedLevel?.label}</p>
+                        <div className="text-center mb-8">
+                            <h2 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-violet-600 mb-2">YÜZLEŞME</h2>
+                            
+                            {/* BAŞARI KARNESİ */}
+                            <div className="bg-gray-800 inline-flex items-center gap-4 px-6 py-3 rounded-full border border-gray-700 shadow-xl mt-4">
+                                <div className="text-right">
+                                    <div className="text-xs text-gray-400 uppercase tracking-wider">Dedektiflik Puanın</div>
+                                    <div className="text-2xl font-bold text-white">% {successRate}</div>
                                 </div>
-                                {levelGuessCorrect ? (
-                                    <div className="bg-green-500 text-white p-3 rounded-full shadow-lg shadow-green-500/30 animate-bounce"><Icon name="check" size={24} /></div>
-                                ) : (
-                                    <div className="text-gray-700 text-sm font-mono">VS</div>
-                                )}
-                                <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 relative overflow-hidden min-w-[200px]">
-                                    <div className="absolute top-0 right-0 bg-pink-600 text-white text-[10px] font-bold px-2 py-1 rounded-bl">GERÇEK</div>
-                                    <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Algoritma Sonucu</p>
-                                    <p className={`text-xl font-bold ${matchLevel.color}`}>{matchLevel.label}</p>
+                                <div className={`w-12 h-12 rounded-full flex items-center justify-center border-4 ${successRate > 70 ? 'border-green-500 text-green-500' : successRate > 40 ? 'border-yellow-500 text-yellow-500' : 'border-red-500 text-red-500'}`}>
+                                    <Icon name={successRate > 70 ? "trophy" : "target"} size={20} />
                                 </div>
                             </div>
-                            <p className="mt-4 text-gray-400 italic">"{matchLevel.desc}"</p>
                         </div>
+
+                        <div className="flex flex-col md:flex-row justify-center gap-6 mt-8 items-center mb-10">
+                            <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 min-w-[200px] text-center">
+                                <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Hissiyatın</p>
+                                <p className={`text-xl font-bold ${guessedLevel?.color}`}>{guessedLevel?.label}</p>
+                            </div>
+                            {levelGuessCorrect ? (
+                                <div className="bg-green-500 text-white p-3 rounded-full shadow-lg animate-bounce"><Icon name="check" size={24} /></div>
+                            ) : (
+                                <div className="text-gray-700 font-mono">VS</div>
+                            )}
+                            <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 min-w-[200px] text-center relative overflow-hidden">
+                                <div className="absolute top-0 right-0 bg-pink-600 text-white text-[10px] px-2 py-1 rounded-bl">GERÇEK</div>
+                                <p className="text-gray-500 text-xs uppercase tracking-wider mb-1">Algoritma</p>
+                                <p className={`text-xl font-bold ${matchLevel.color}`}>{matchLevel.label}</p>
+                            </div>
+                        </div>
+
                         <div className="grid md:grid-cols-2 gap-6">
                             <div className="bg-gray-800/50 rounded-2xl p-6 border border-gray-700">
-                                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Icon name="user" size={18}/> Sen</h3>
+                                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Icon name="user" size={18}/> {userProfile.name}</h3>
                                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin">
                                     {QUESTIONS.map(q => (
                                         <div key={q.id} className={`flex justify-between text-sm p-2 rounded-lg ${sharedCategories.includes(q.id) ? 'bg-green-500/10 border border-green-500/20' : 'bg-gray-900/30'}`}>
@@ -586,7 +586,7 @@
                             </div>
                             <div className="bg-gray-800/50 rounded-2xl p-6 border border-gray-700 relative">
                                 <div className="absolute -top-3 -right-3 bg-violet-600 text-white text-xs px-3 py-1 rounded-full shadow-lg">Partner</div>
-                                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Icon name="ghost" size={18}/> O</h3>
+                                <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2"><Icon name="ghost" size={18}/> {opponentProfile.name}</h3>
                                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin">
                                     {QUESTIONS.map(q => (
                                         <div key={q.id} className={`flex justify-between text-sm p-2 rounded-lg ${sharedCategories.includes(q.id) ? 'bg-green-500/10 border border-green-500/20' : 'bg-gray-900/30'}`}>
@@ -597,7 +597,7 @@
                             </div>
                         </div>
                         <div className="mt-8 flex justify-center">
-                            <button onClick={() => { setGameState(GAME_STATES.LOBBY); setGameId(null); setMessages([]); setQuestionsLeft(3); }} className="text-gray-400 hover:text-white font-medium underline decoration-pink-500 underline-offset-4 transition-colors">Yeni Bir Şans Dene</button>
+                            <button onClick={() => { setGameState(GAME_STATES.LOBBY); setGameId(null); setMessages([]); setQuestionsLeft(3); setCurrentTurn(null); }} className="text-gray-400 hover:text-white font-medium underline decoration-pink-500 underline-offset-4 transition-colors">Yeni Bir Şans Dene</button>
                         </div>
                     </div>
                 );
